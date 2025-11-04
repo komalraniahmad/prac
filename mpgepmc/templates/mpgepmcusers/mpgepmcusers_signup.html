@@ -48,20 +48,20 @@
             {% csrf_token %}
 
             <div class="form-group">
-                <label for="{{ form.first_name.id_for_label }}">First Name (Required, 1-64 chars)</label>
+                <label for="{{ form.first_name.id_for_label }}">First Name (Required, 1-64 letters)</label>
                 {{ form.first_name }}
                 <div class="live-feedback" id="feedback-first_name"></div>
                 {{ form.first_name.errors }}
             </div>
 
             <div class="form-group">
-                <label for="{{ form.middle_name.id_for_label }}">Middle Name (Optional, 1-64 chars)</label>
+                <label for="{{ form.middle_name.id_for_label }}">Middle Name (Optional)</label>
                 {{ form.middle_name }}
                 <div class="live-feedback" id="feedback-middle_name"></div>
             </div>
 
             <div class="form-group">
-                <label for="{{ form.last_name.id_for_label }}">Last Name (Required, 1-64 chars)</label>
+                <label for="{{ form.last_name.id_for_label }}">Last Name (Required, 1-64 letters)</label>
                 {{ form.last_name }}
                 <div class="live-feedback" id="feedback-last_name"></div>
                 {{ form.last_name.errors }}
@@ -123,6 +123,9 @@
 
         // Initialize status for all fields to false
         requiredFields.forEach(field => validationStatus[field] = false);
+        // Middle name is optional, so it is true by default
+        validationStatus['middle_name'] = true;
+
 
         /**
          * Generic function to send AJAX request for live validation.
@@ -136,6 +139,15 @@
             // Clear previous state and show loading if complex check
             feedbackElement.className = 'live-feedback';
             feedbackElement.innerHTML = fieldName.includes('password') ? 'Checking...' : ''; 
+
+            // If middle name is empty, it's immediately valid. Prevents unnecessary AJAX call.
+            if (fieldName === 'middle_name' && value.trim() === '') {
+                feedbackElement.innerHTML = '';
+                validationStatus[fieldName] = true;
+                checkFormValidity();
+                return;
+            }
+
 
             try {
                 const response = await fetch(url, {
@@ -152,10 +164,12 @@
                 // Update live feedback
                 if (data.is_valid) {
                     feedbackElement.innerHTML = '&#10003; Valid'; // Checkmark
+                    feedbackElement.classList.remove('feedback-error');
                     feedbackElement.classList.add('feedback-success');
                     validationStatus[fieldName] = true;
                 } else {
                     feedbackElement.innerHTML = data.error || 'Invalid input.';
+                    feedbackElement.classList.remove('feedback-success');
                     feedbackElement.classList.add('feedback-error');
                     validationStatus[fieldName] = false;
                 }
@@ -183,10 +197,12 @@
                 validationStatus['password_confirm'] = false;
             } else if (password === passwordConfirm) {
                 feedbackElement.innerHTML = '&#10003; Passwords match.';
+                feedbackElement.classList.remove('feedback-error');
                 feedbackElement.classList.add('feedback-success');
                 validationStatus['password_confirm'] = true;
             } else {
                 feedbackElement.innerHTML = 'Passwords do not match!';
+                feedbackElement.classList.remove('feedback-success');
                 feedbackElement.classList.add('feedback-error');
                 validationStatus['password_confirm'] = false;
             }
@@ -197,13 +213,13 @@
          * Global check to enable/disable the submit button.
          */
         function checkFormValidity() {
-            // 1. Check if all required fields are filled (basic check)
+            // 1. Check if all REQUIRED fields are filled (basic check)
             const allRequiredFieldsFilled = requiredFields.every(field => {
                 const input = document.getElementById(`id_${field}`);
                 return input && input.value.trim() !== '';
             });
 
-            // 2. Check if all fields passed the validation status
+            // 2. Check if all fields (required + middle_name) passed the validation status
             const allValidationPassed = Object.values(validationStatus).every(status => status === true);
             
             // The submit button is enabled ONLY if ALL required fields are filled AND all validations passed.
@@ -233,12 +249,20 @@
              }
         });
 
-        // 3. For all fields, run basic check on input
+        // 3. For all required fields, run basic check on input
         requiredFields.forEach(fieldName => {
             const input = document.getElementById(`id_${fieldName}`);
             if (input) {
                 input.addEventListener('input', checkFormValidity);
             }
+        });
+
+        // 4. Specifically watch middle_name input to set validation status to false if something is typed, forcing an AJAX check
+        document.getElementById('id_middle_name').addEventListener('input', (e) => {
+            if (e.target.value.trim() !== '') {
+                validationStatus['middle_name'] = false; // Invalidates status, forcing validation check on blur
+            }
+            checkFormValidity();
         });
         
         // Initial check on load

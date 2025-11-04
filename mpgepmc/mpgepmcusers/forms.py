@@ -8,6 +8,13 @@ from mpgepmcusers.validators import (
     mpgepmcusers_validate_password_complexity
 )
 
+# HELPER FUNCTION: Counts only letter characters, ignoring spaces
+def count_letters(value):
+    if not value:
+        return 0
+    # Returns the length of the string composed only of letters (A-Z, a-z)
+    return len([c for c in value if c.isalpha()])
+
 class mpgepmcusersSignupForm(forms.ModelForm):
     """
     Form for user registration, including password and confirmation.
@@ -45,21 +52,26 @@ class mpgepmcusersSignupForm(forms.ModelForm):
     # Custom Field Validation (using ModelForm's clean_<field> methods)
     def clean_first_name(self):
         name = self.cleaned_data.get('first_name')
-        if not (1 <= len(name) <= 64):
-            raise forms.ValidationError("First Name must be between 1 and 64 characters.")
+        letter_count = count_letters(name)
+        if not (1 <= letter_count <= 64):
+            raise forms.ValidationError("First Name must contain between 1 and 64 letters (spaces are ignored in count).")
         return name
 
-    # Middle Name is optional, so only validate length if present
+    # FIXED: Middle Name is optional, only validate length if provided
     def clean_middle_name(self):
         name = self.cleaned_data.get('middle_name')
-        if name and not (1 <= len(name) <= 64):
-             raise forms.ValidationError("Middle Name must be between 1 and 64 characters.")
+        if name: # Only validate if a value is present
+            letter_count = count_letters(name)
+            if not (1 <= letter_count <= 64):
+                 raise forms.ValidationError("Middle Name must contain between 1 and 64 letters (spaces are ignored in count).")
+        # If blank, it passes silently, fulfilling the optional requirement.
         return name
 
     def clean_last_name(self):
         name = self.cleaned_data.get('last_name')
-        if not (1 <= len(name) <= 64):
-            raise forms.ValidationError("Last Name must be between 1 and 64 characters.")
+        letter_count = count_letters(name)
+        if not (1 <= letter_count <= 64):
+            raise forms.ValidationError("Last Name must contain between 1 and 64 letters (spaces are ignored in count).")
         return name
 
     def clean_date_of_birth(self):

@@ -143,3 +143,16 @@ EMAIL_USE_TLS = True
 EMAIL_HOST_USER = 'komalraniahmad@gmail.com'
 EMAIL_HOST_PASSWORD = 'yaqw wbmz piwr crph'
 DEFAULT_FROM_EMAIL = 'noreply@mpgepmc.com'
+
+
+
+
+CSRF_TRUSTED_ORIGINS = [
+    'https://localhost:8000',  # Add this line
+    'http://localhost:8000',   # In case you're using HTTP for local development
+]
+
+
+# settings.py
+
+CSRF_COOKIE_DOMAIN = None  # Use None for local development (default)

@@ -7,7 +7,7 @@ from django.http import JsonResponse, HttpResponseBadRequest
 from django.views.decorators.http import require_POST
 from django.db import IntegrityError
 
-from mpgepmcusers.forms import mpgepmcusersSignupForm, mpgepmcusersSignInForm
+from mpgepmcusers.forms import mpgepmcusersSignupForm, mpgepmcusersSignInForm, count_letters
 from mpgepmcusers.models import mpgepmcusersUser, mpgepmcusersOTP
 from mpgepmcusers.utils import mpgepmcusers_generate_otp, mpgepmcusers_send_otp_email
 from mpgepmcusers.validators import (
@@ -172,19 +172,31 @@ def mpgepmcusers_ajax_validate(request):
     """
     data = json.loads(request.body)
     field_name = data.get('field')
-    value = data.get('value')
+    value = data.get('value', '').strip() # Ensure value is retrieved, strip whitespace for counting
     
-    if not field_name or not value:
-        return HttpResponseBadRequest(json.dumps({'is_valid': False, 'error': 'Missing field or value'}))
+    # Allows empty value for middle_name, but checks for missing value on required fields if they are passed in
+    if not value and field_name not in ['middle_name']:
+        return HttpResponseBadRequest(json.dumps({'is_valid': False, 'error': 'Missing required field value.'}))
     
     is_valid = True
     error_message = ''
 
     try:
-        if field_name == 'first_name' or field_name == 'middle_name' or field_name == 'last_name':
-            if not (1 <= len(value) <= 64):
+        if field_name == 'first_name' or field_name == 'last_name':
+            letter_count = count_letters(value)
+            if not (1 <= letter_count <= 64):
                 is_valid = False
-                error_message = f"{field_name.replace('_', ' ').title()} must be 1-64 characters."
+                error_message = f"{field_name.replace('_', ' ').title()} must contain 1-64 letters (spaces ignored)."
+
+        elif field_name == 'middle_name':
+            if value: # Only validate if a value is present (it's optional)
+                letter_count = count_letters(value)
+                if not (1 <= letter_count <= 64):
+                    is_valid = False
+                    error_message = "Middle Name must contain 1-64 letters (spaces ignored)."
+            else:
+                # Value is empty, which is valid for middle_name
+                is_valid = True 
 
         elif field_name == 'gender':
             if value not in ['M', 'F', 'O']:
@@ -214,8 +226,6 @@ def mpgepmcusers_ajax_validate(request):
         elif field_name == 'password':
             mpgepmcusers_validate_password_complexity(value)
         
-        # password_confirm is handled purely client-side unless a full form submit is done
-
     except Exception as e:
         is_valid = False
         error_message = str(e.message) if hasattr(e, 'message') else str(e)

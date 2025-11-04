@@ -21,15 +21,14 @@ def mpgepmcusers_validate_birth_date(value):
     age = today.year - value.year - ((today.month, today.day) < (value.month, value.day))
 
     if age < MIN_AGE:
+        # FIXED: Professional Age Error Message
         raise ValidationError(
-            _('User must be at least %(min_age)s years old to register.'),
-            params={'min_age': MIN_AGE},
+            _('You must be at least 12 years old to register.'),
             code='too_young'
         )
     if age > MAX_AGE:
         raise ValidationError(
-            _('Date of birth is invalid. Maximum age allowed is %(max_age)s.'),
-            params={'max_age': MAX_AGE},
+            _('Date of birth is invalid. Maximum age allowed is 150 years.'),
             code='too_old'
         )
 
@@ -39,9 +38,9 @@ def mpgepmcusers_validate_email_domain(value):
     """
     domain = value.split('@')[-1].lower()
     if domain not in ALLOWED_DOMAINS:
+        # FIXED: Professional Email Domain Error Message
         raise ValidationError(
-            _('Invalid email domain. Must be one of: %(domains)s.'),
-            params={'domains': ', '.join(ALLOWED_DOMAINS)},
+            _('Invalid email domain. Must be one of: gmail.com, yahoo.com, or mpgepmc.com.'),
             code='invalid_domain'
         )
 
