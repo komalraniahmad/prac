@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>mpgepmc - {{ title }}</title>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f0f4f8; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
+        .container { background-color: #ffffff; padding: 40px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1); text-align: center; max-width: 400px; width: 90%; }
+        h1 { color: #2c3e50; margin-bottom: 25px; }
+        .form-group { margin-bottom: 15px; text-align: left; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; color: #34495e; }
+        input[type="email"], input[type="password"] {
+            width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box;
+        }
+        .btn-submit {
+            width: 100%; padding: 12px; background-color: #3498db; color: white; border: none;
+            border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 16px;
+            transition: background-color 0.3s; margin-top: 20px;
+        }
+        .btn-submit:hover { background-color: #2980b9; }
+        .messages { list-style: none; padding: 0; margin-bottom: 20px; }
+        .messages li { padding: 10px; border-radius: 6px; margin-bottom: 10px; font-weight: bold; }
+        .alert-error { background-color: #f2dede; color: #a94442; border: 1px solid #ebccd1; }
+        .alert-warning { background-color: #fcf8e3; color: #8a6d3b; border: 1px solid #faebcc; }
+        .alert-success { background-color: #dff0d8; color: #3c763d; border: 1px solid #d6e9c6; }
+        .links { margin-top: 15px; font-size: 0.9em; }
+        .links a { color: #3498db; text-decoration: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Sign In</h1>
+
+        {% if messages %}
+            <ul class="messages">
+                {% for message in messages %}
+                    <li class="{{ message.tags|yesno:'alert-success,alert-error alert-warning' }}">{{ message }}</li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+
+        <form method="post">
+            {% csrf_token %}
+
+            <div class="form-group">
+                <label for="{{ form.username.id_for_label }}">Email Address</label>
+                {{ form.username }}
+            </div>
+
+            <div class="form-group">
+                <label for="{{ form.password.id_for_label }}">Password</label>
+                {{ form.password }}
+            </div>
+            
+            {% if form.errors and not form.non_field_errors %}
+                <ul class="errorlist alert-error">
+                    <li>Please check your credentials.</li>
+                </ul>
+            {% endif %}
+
+            <button type="submit" class="btn-submit">Log In</button>
+        </form>
+
+        <div class="links">
+            Don't have an account? <a href="{% url 'mpgepmcusers:signup' %}">Sign Up here</a>.
+        </div>
+    </div>
+</body>
+</html>

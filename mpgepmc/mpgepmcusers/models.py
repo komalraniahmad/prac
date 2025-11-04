@@ -1,0 +1,97 @@
+from django.db import models
+from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin, BaseUserManager
+from django.utils import timezone
+from datetime import timedelta
+from mpgepmc.settings import OTP_EXPIRY_TIME
+
+# Custom Manager for mpgepmcusersUser
+class mpgepmcusersUserManager(BaseUserManager):
+    """
+    Custom manager for the mpgepmcusersUser model.
+    """
+    def create_user(self, email, password=None, **extra_fields):
+        if not email:
+            raise ValueError('The Email field must be set')
+        email = self.normalize_email(email)
+        user = self.model(email=email, **extra_fields)
+        user.set_password(password)
+        user.save(using=self._db)
+        return user
+
+    def create_superuser(self, email, password, **extra_fields):
+        extra_fields.setdefault('is_staff', True)
+        extra_fields.setdefault('is_superuser', True)
+        extra_fields.setdefault('is_active', True) # Superusers are active immediately
+        extra_fields.setdefault('first_name', 'Admin')
+        extra_fields.setdefault('last_name', 'User')
+
+        if extra_fields.get('is_staff') is not True:
+            raise ValueError('Superuser must have is_staff=True.')
+        if extra_fields.get('is_superuser') is not True:
+            raise ValueError('Superuser must have is_superuser=True.')
+
+        return self.create_user(email, password, **extra_fields)
+
+# Custom User Model
+class mpgepmcusersUser(AbstractBaseUser, PermissionsMixin):
+    """
+    Custom user model with required fields and prefix.
+    """
+    GENDER_CHOICES = [
+        ('M', 'Male'),
+        ('F', 'Female'),
+        ('O', 'Others'),
+    ]
+
+    # Required Fields
+    first_name = models.CharField(max_length=64)
+    middle_name = models.CharField(max_length=64, blank=True, null=True) # Optional
+    last_name = models.CharField(max_length=64)
+    gender = models.CharField(max_length=1, choices=GENDER_CHOICES)
+    date_of_birth = models.DateField()
+    email = models.EmailField(unique=True)
+    mobile_number = models.CharField(max_length=15, unique=True) # Assuming max 15 digits for international
+
+    # Status Fields
+    is_active = models.BooleanField(default=False) # Must be False until OTP is verified
+    is_staff = models.BooleanField(default=False)
+    date_joined = models.DateTimeField(default=timezone.now)
+
+    USERNAME_FIELD = 'email'
+    REQUIRED_FIELDS = ['first_name', 'last_name', 'gender', 'date_of_birth', 'mobile_number']
+
+    objects = mpgepmcusersUserManager()
+
+    class Meta:
+        verbose_name = 'mpgepmc User'
+        verbose_name_plural = 'mpgepmc Users'
+
+    def __str__(self):
+        return self.email
+
+# OTP Verification Model
+class mpgepmcusersOTP(models.Model):
+    """
+    Model to store OTP for email verification with expiry.
+    """
+    user = models.OneToOneField(mpgepmcusersUser, on_delete=models.CASCADE, related_name='otp_record')
+    otp_code = models.CharField(max_length=6)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+
+    class Meta:
+        verbose_name = 'mpgepmc OTP Record'
+        verbose_name_plural = 'mpgepmc OTP Records'
+
+    def is_expired(self):
+        """Checks if the OTP has expired."""
+        return timezone.now() > self.expires_at
+
+    def save(self, *args, **kwargs):
+        """Sets the expiry time before saving if not already set."""
+        if not self.id or not self.expires_at:
+            self.expires_at = timezone.now() + OTP_EXPIRY_TIME
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"OTP for {self.user.email}"

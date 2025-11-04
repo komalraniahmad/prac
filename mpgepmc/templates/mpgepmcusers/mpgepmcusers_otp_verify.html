@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>mpgepmc - {{ title }}</title>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f0f4f8; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
+        .container { background-color: #ffffff; padding: 40px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1); text-align: center; max-width: 450px; width: 90%; }
+        h1 { color: #2c3e50; margin-bottom: 10px; }
+        p { color: #555; margin-bottom: 25px; }
+        input[type="text"] {
+            width: 100%; padding: 12px; font-size: 1.5em; text-align: center;
+            border: 2px solid #ccc; border-radius: 8px; box-sizing: border-box;
+            letter-spacing: 0.5em; /* Spacing for OTP */
+            margin-bottom: 20px;
+        }
+        .btn-verify {
+            width: 100%; padding: 12px; background-color: #3498db; color: white; border: none;
+            border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 16px;
+            transition: background-color 0.3s; margin-bottom: 15px;
+        }
+        .btn-verify:hover { background-color: #2980b9; }
+        .btn-resend {
+            background: none; border: none; color: #7f8c8d; cursor: pointer; text-decoration: underline;
+            padding: 5px; transition: color 0.3s;
+        }
+        .btn-resend:hover { color: #34495e; }
+        .messages { list-style: none; padding: 0; margin-bottom: 20px; }
+        .messages li { padding: 10px; border-radius: 6px; margin-bottom: 10px; font-weight: bold; }
+        .alert-error { background-color: #f2dede; color: #a94442; border: 1px solid #ebccd1; }
+        .alert-success { background-color: #dff0d8; color: #3c763d; border: 1px solid #d6e9c6; }
+        .alert-warning { background-color: #fcf8e3; color: #8a6d3b; border: 1px solid #faebcc; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Verify Your Account</h1>
+
+        {% if messages %}
+            <ul class="messages">
+                {% for message in messages %}
+                    <li class="{{ message.tags|yesno:'alert-success,alert-error alert-warning' }}">{{ message }}</li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+
+        <p>A verification code has been sent to <strong>{{ email }}</strong>. Please enter the 6-digit code below. The code is valid for 30 minutes.</p>
+
+        <form method="post">
+            {% csrf_token %}
+            <input type="text" name="otp_code" maxlength="6" required placeholder="Enter OTP Code" pattern="\d{6}">
+            <button type="submit" class="btn-verify">Verify Account</button>
+        </form>
+
+        <button type="button" id="resend-btn" class="btn-resend">Resend OTP to Email</button>
+    </div>
+
+    <script>
+        const resendBtn = document.getElementById('resend-btn');
+        const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+
+        resendBtn.addEventListener('click', async () => {
+            resendBtn.disabled = true;
+            resendBtn.textContent = 'Sending...';
+
+            const url = "{% url 'mpgepmcusers:resend_otp' %}";
+
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': csrfToken,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({}) // Empty body for POST request
+                });
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert('Success! ' + data.message); // Using alert here as the view is designed to handle failure gracefully
+                } else {
+                    alert('Error: ' + data.message);
+                }
+
+            } catch (error) {
+                alert('A server error occurred while trying to resend OTP.');
+            } finally {
+                resendBtn.textContent = 'Resend OTP to Email';
+                
+                // Implement a short delay to prevent abuse
+                setTimeout(() => {
+                    resendBtn.disabled = false;
+                }, 60000); // Re-enable after 60 seconds (1 minute throttle)
+            }
+        });
+    </script>
+</body>
+</html>

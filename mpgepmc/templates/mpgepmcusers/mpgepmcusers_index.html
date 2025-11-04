@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>mpgepmc - Welcome</title>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f0f4f8; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
+        .container { background-color: #ffffff; padding: 40px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1); text-align: center; max-width: 400px; width: 90%; }
+        h1 { color: #2c3e50; margin-bottom: 20px; }
+        p { color: #7f8c8d; margin-bottom: 30px; }
+        .btn-group a {
+            display: inline-block; padding: 10px 20px; margin: 0 10px;
+            text-decoration: none; border-radius: 8px; font-weight: bold;
+            transition: background-color 0.3s, transform 0.2s;
+        }
+        .btn-primary { background-color: #3498db; color: #ffffff; border: 2px solid #3498db; }
+        .btn-primary:hover { background-color: #2980b9; transform: translateY(-2px); }
+        .btn-secondary { background-color: #ecf0f1; color: #34495e; border: 2px solid #bdc3c7; }
+        .btn-secondary:hover { background-color: #bdc3c7; transform: translateY(-2px); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Welcome to mpgepmc</h1>
+        <p>Your secure and feature-rich user management system demo.</p>
+
+        {% if user.is_authenticated %}
+            <div class="btn-group">
+                <a href="{% url 'mpgepmcusers:home' %}" class="btn-primary">Go to Home</a>
+                <a href="{% url 'mpgepmcusers:logout' %}" class="btn-secondary">Logout</a>
+            </div>
+        {% else %}
+            <div class="btn-group">
+                <a href="{% url 'mpgepmcusers:signin' %}" class="btn-primary">Sign In</a>
+                <a href="{% url 'mpgepmcusers:signup' %}" class="btn-secondary">Sign Up</a>
+            </div>
+        {% endif %}
+    </div>
+</body>
+</html>

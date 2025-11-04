@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>mpgepmc - {{ title }}</title>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f0f4f8; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
+        .container { background-color: #ffffff; padding: 30px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1); max-width: 600px; width: 90%; }
+        h1 { color: #2c3e50; text-align: center; margin-bottom: 25px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; color: #34495e; }
+        input[type="text"], input[type="email"], input[type="password"], input[type="date"], input[type="number"], select {
+            width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; transition: border-color 0.3s;
+        }
+        input:focus, select:focus { border-color: #3498db; outline: none; box-shadow: 0 0 5px rgba(52, 152, 219, 0.5); }
+        .btn-submit {
+            width: 100%; padding: 12px; background-color: #2ecc71; color: white; border: none;
+            border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 16px;
+            transition: background-color 0.3s, opacity 0.3s; margin-top: 10px;
+        }
+        .btn-submit:hover:not(:disabled) { background-color: #27ae60; }
+        .btn-submit:disabled { background-color: #bdc3c7; cursor: not-allowed; opacity: 0.7; }
+        .messages { list-style: none; padding: 0; margin-bottom: 20px; }
+        .messages li { padding: 10px; border-radius: 6px; margin-bottom: 10px; font-weight: bold; }
+        .errorlist { color: #e74c3c; margin-top: 5px; font-size: 0.9em; list-style: none; padding-left: 0; }
+        .errorlist li { margin-bottom: 0; }
+        .alert-error { background-color: #f2dede; color: #a94442; border: 1px solid #ebccd1; }
+        .alert-success { background-color: #dff0d8; color: #3c763d; border: 1px solid #d6e9c6; }
+        .live-feedback { font-size: 0.8em; margin-top: 5px; height: 1.5em; }
+        .feedback-error { color: #e74c3c; }
+        .feedback-success { color: #2ecc71; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>User Registration (Sign Up)</h1>
+
+        {% if messages %}
+            <ul class="messages">
+                {% for message in messages %}
+                    <li class="{{ message.tags|yesno:'alert-success,alert-error' }}">{{ message }}</li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+
+        <form method="post" id="signup-form" novalidate>
+            {% csrf_token %}
+
+            <div class="form-group">
+                <label for="{{ form.first_name.id_for_label }}">First Name (Required, 1-64 chars)</label>
+                {{ form.first_name }}
+                <div class="live-feedback" id="feedback-first_name"></div>
+                {{ form.first_name.errors }}
+            </div>
+
+            <div class="form-group">
+                <label for="{{ form.middle_name.id_for_label }}">Middle Name (Optional, 1-64 chars)</label>
+                {{ form.middle_name }}
+                <div class="live-feedback" id="feedback-middle_name"></div>
+            </div>
+
+            <div class="form-group">
+                <label for="{{ form.last_name.id_for_label }}">Last Name (Required, 1-64 chars)</label>
+                {{ form.last_name }}
+                <div class="live-feedback" id="feedback-last_name"></div>
+                {{ form.last_name.errors }}
+            </div>
+
+            <div class="form-group">
+                <label for="{{ form.gender.id_for_label }}">Gender (Required)</label>
+                {{ form.gender }}
+                <div class="live-feedback" id="feedback-gender"></div>
+                {{ form.gender.errors }}
+            </div>
+
+            <div class="form-group">
+                <label for="{{ form.date_of_birth.id_for_label }}">Date of Birth (Min 12 yrs, Max 150 yrs)</label>
+                {{ form.date_of_birth }}
+                <div class="live-feedback" id="feedback-date_of_birth"></div>
+                {{ form.date_of_birth.errors }}
+            </div>
+
+            <div class="form-group">
+                <label for="{{ form.email.id_for_label }}">Email (Required, Unique, Allowed Domains)</label>
+                {{ form.email }}
+                <div class="live-feedback" id="feedback-email"></div>
+                {{ form.email.errors }}
+            </div>
+
+            <div class="form-group">
+                <label for="{{ form.mobile_number.id_for_label }}">Mobile Number (Required, Unique)</label>
+                {{ form.mobile_number }}
+                <div class="live-feedback" id="feedback-mobile_number"></div>
+                {{ form.mobile_number.errors }}
+            </div>
+
+            <div class="form-group">
+                <label for="{{ form.password.id_for_label }}">Password (8-52 chars, 1S, 1C, 1D, 1Symbol)</label>
+                {{ form.password }}
+                <div class="live-feedback" id="feedback-password"></div>
+                {{ form.password.errors }}
+            </div>
+
+            <div class="form-group">
+                <label for="{{ form.password_confirm.id_for_label }}">Confirm Password</label>
+                {{ form.password_confirm }}
+                <div class="live-feedback" id="feedback-password_confirm"></div>
+                {{ form.password_confirm.errors }}
+            </div>
+
+            <button type="submit" class="btn-submit" id="submit-btn" disabled>Sign Up</button>
+        </form>
+    </div>
+
+    <script>
+        const form = document.getElementById('signup-form');
+        const submitBtn = document.getElementById('submit-btn');
+        const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+        const requiredFields = ['first_name', 'last_name', 'gender', 'date_of_birth', 'email', 'mobile_number', 'password', 'password_confirm'];
+        const ajaxFields = ['first_name', 'middle_name', 'last_name', 'gender', 'date_of_birth', 'email', 'mobile_number', 'password'];
+        const validationStatus = {}; // Tracks the validity of each field
+
+        // Initialize status for all fields to false
+        requiredFields.forEach(field => validationStatus[field] = false);
+
+        /**
+         * Generic function to send AJAX request for live validation.
+         */
+        async function runAjaxValidation(fieldName, value) {
+            const url = "{% url 'mpgepmcusers:ajax_validate' %}";
+            const feedbackElement = document.getElementById(`feedback-${fieldName}`);
+            
+            if (!feedbackElement) return;
+
+            // Clear previous state and show loading if complex check
+            feedbackElement.className = 'live-feedback';
+            feedbackElement.innerHTML = fieldName.includes('password') ? 'Checking...' : ''; 
+
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: JSON.stringify({ field: fieldName, value: value })
+                });
+
+                const data = await response.json();
+                
+                // Update live feedback
+                if (data.is_valid) {
+                    feedbackElement.innerHTML = '&#10003; Valid'; // Checkmark
+                    feedbackElement.classList.add('feedback-success');
+                    validationStatus[fieldName] = true;
+                } else {
+                    feedbackElement.innerHTML = data.error || 'Invalid input.';
+                    feedbackElement.classList.add('feedback-error');
+                    validationStatus[fieldName] = false;
+                }
+            } catch (error) {
+                // If network/server error
+                feedbackElement.innerHTML = 'Validation error.';
+                feedbackElement.classList.add('feedback-error');
+                validationStatus[fieldName] = false;
+            }
+            checkFormValidity();
+        }
+
+        /**
+         * Specific client-side check for Password Confirmation.
+         */
+        function checkPasswordMatch() {
+            const password = document.querySelector('#id_password').value;
+            const passwordConfirm = document.querySelector('#id_password_confirm').value;
+            const feedbackElement = document.getElementById('feedback-password_confirm');
+
+            feedbackElement.className = 'live-feedback';
+
+            if (password === '' || passwordConfirm === '') {
+                feedbackElement.innerHTML = '';
+                validationStatus['password_confirm'] = false;
+            } else if (password === passwordConfirm) {
+                feedbackElement.innerHTML = '&#10003; Passwords match.';
+                feedbackElement.classList.add('feedback-success');
+                validationStatus['password_confirm'] = true;
+            } else {
+                feedbackElement.innerHTML = 'Passwords do not match!';
+                feedbackElement.classList.add('feedback-error');
+                validationStatus['password_confirm'] = false;
+            }
+            checkFormValidity();
+        }
+        
+        /**
+         * Global check to enable/disable the submit button.
+         */
+        function checkFormValidity() {
+            // 1. Check if all required fields are filled (basic check)
+            const allRequiredFieldsFilled = requiredFields.every(field => {
+                const input = document.getElementById(`id_${field}`);
+                return input && input.value.trim() !== '';
+            });
+
+            // 2. Check if all fields passed the validation status
+            const allValidationPassed = Object.values(validationStatus).every(status => status === true);
+            
+            // The submit button is enabled ONLY if ALL required fields are filled AND all validations passed.
+            submitBtn.disabled = !(allRequiredFieldsFilled && allValidationPassed);
+        }
+
+        // --- Event Listeners ---
+        
+        // 1. Live AJAX validation for complex/server checks
+        ajaxFields.forEach(fieldName => {
+            const input = document.getElementById(`id_${fieldName}`);
+            if (input) {
+                // Use 'change' for DOB and 'blur' for other unique/complex fields
+                const eventType = (fieldName === 'date_of_birth' || fieldName === 'gender') ? 'change' : 'blur';
+                input.addEventListener(eventType, () => {
+                    runAjaxValidation(fieldName, input.value);
+                });
+            }
+        });
+
+        // 2. Client-side validation for password match and required field check
+        ['password', 'password_confirm'].forEach(fieldName => {
+             const input = document.getElementById(`id_${fieldName}`);
+             if (input) {
+                input.addEventListener('input', checkPasswordMatch);
+                input.addEventListener('input', checkFormValidity);
+             }
+        });
+
+        // 3. For all fields, run basic check on input
+        requiredFields.forEach(fieldName => {
+            const input = document.getElementById(`id_${fieldName}`);
+            if (input) {
+                input.addEventListener('input', checkFormValidity);
+            }
+        });
+        
+        // Initial check on load
+        checkFormValidity();
+
+    </script>
+</body>
+</html>

@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>mpgepmc - Home</title>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f0f4f8; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
+        .container { background-color: #ffffff; padding: 40px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1); text-align: center; max-width: 600px; width: 90%; }
+        h1 { color: #2c3e50; margin-bottom: 10px; }
+        p { color: #7f8c8d; margin-bottom: 30px; font-size: 1.1em; }
+        .user-info { text-align: left; margin-top: 20px; padding: 20px; border: 1px solid #ecf0f1; border-radius: 8px; background-color: #f9f9f9; }
+        .user-info div { margin-bottom: 10px; }
+        .user-info strong { color: #34495e; display: inline-block; width: 150px; }
+        .btn-logout {
+            display: inline-block; padding: 10px 20px; margin-top: 30px;
+            background-color: #e74c3c; color: #ffffff; border: none;
+            border-radius: 8px; font-weight: bold; text-decoration: none;
+            transition: background-color 0.3s;
+        }
+        .btn-logout:hover { background-color: #c0392b; }
+        .messages { list-style: none; padding: 0; margin-bottom: 20px; }
+        .messages li { padding: 10px; border-radius: 6px; margin-bottom: 10px; font-weight: bold; }
+        .alert-success { background-color: #dff0d8; color: #3c763d; border: 1px solid #d6e9c6; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        {% if messages %}
+            <ul class="messages">
+                {% for message in messages %}
+                    <li class="{{ message.tags|yesno:'alert-success,alert-error' }}">{{ message }}</li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+
+        <h1>Welcome, {{ user.first_name }}!</h1>
+        <p>You have successfully signed in and verified your mpgepmc account.</p>
+
+        <div class="user-info">
+            <h2>Your Profile</h2>
+            <div><strong>Full Name:</strong> {{ user.first_name }} {{ user.middle_name }} {{ user.last_name }}</div>
+            <div><strong>Email:</strong> {{ user.email }}</div>
+            <div><strong>Mobile:</strong> {{ user.mobile_number }}</div>
+            <div><strong>Gender:</strong> {{ user.get_gender_display }}</div>
+            <div><strong>Date of Birth:</strong> {{ user.date_of_birth }}</div>
+            <div><strong>Account Status:</strong> Active</div>
+        </div>
+
+        <a href="{% url 'mpgepmcusers:logout' %}" class="btn-logout">Log Out</a>
+    </div>
+</body>
+</html>
