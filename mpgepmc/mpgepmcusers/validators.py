@@ -9,6 +9,8 @@ MAX_AGE = 150
 ALLOWED_DOMAINS = ['gmail.com', 'yahoo.com', 'mpgepmc.com']
 PASSWORD_REGEX = r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*#?&])[A-Za-z\d@$!%*#?&]{8,52}$"
 MOBILE_REGEX = r"^\+?1?\d{9,15}$" # Basic international phone number format (9 to 15 digits)
+# UPDATED CONSTANT: Basic Email Format Regex (checks for username@domain.tld structure)
+EMAIL_FORMAT_REGEX = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
 
 # NEW CONSTANT: Strict Name Validation Regex (A-Z, a-z, ., space, -, _)
 NAME_REGEX = r"^[A-Za-z\s\-\._]+$"
@@ -75,10 +77,19 @@ def mpgepmcusers_validate_birth_date(value):
             code='too_old'
         )
 
-def mpgepmcusers_validate_email_domain(value):
+def mpgepmcusers_validate_email(value): # RENAMED & MODIFIED
     """
-    Validates if the email belongs to one of the allowed domains.
+    Validates if the email has a basic valid format (username@domain) and 
+    belongs to one of the allowed domains.
     """
+    # 1. Check for basic email format (relies on Django's EmailField, but as a safeguard)
+    if not re.fullmatch(EMAIL_FORMAT_REGEX, value):
+        raise ValidationError(
+            _('Enter a valid email address with a username and domain.'),
+            code='invalid_email_format'
+        )
+
+    # 2. Check for allowed domain
     domain = value.split('@')[-1].lower()
     allowed_domains_str = ', '.join(ALLOWED_DOMAINS)
     if domain not in ALLOWED_DOMAINS:

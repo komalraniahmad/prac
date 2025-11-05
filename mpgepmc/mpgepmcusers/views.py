@@ -13,7 +13,7 @@ from mpgepmcusers.forms import mpgepmcusersSignupForm, mpgepmcusersSignInForm
 from mpgepmcusers.models import mpgepmcusersUser, mpgepmcusersOTP, OTHER
 from mpgepmcusers.utils import mpgepmcusers_generate_otp, mpgepmcusers_send_otp_email
 from mpgepmcusers.validators import (
-    mpgepmcusers_validate_birth_date, mpgepmcusers_validate_email_domain,
+    mpgepmcusers_validate_birth_date, mpgepmcusers_validate_email,
     mpgepmcusers_validate_mobile_number, mpgepmcusers_validate_password_complexity,
     mpgepmcusers_validate_name_format_and_length 
 )
@@ -255,7 +255,7 @@ def mpgepmcusers_ajax_validate(request):
             
         # --- Email Validation (Format + Uniqueness) ---
         elif field_name == 'email':
-            mpgepmcusers_validate_email_domain(value)
+            mpgepmcusers_validate_email(value) # <-- FIXED FUNCTION CALL
             # Check uniqueness
             if mpgepmcusersUser.objects.filter(email=value).exists():
                 is_valid = False

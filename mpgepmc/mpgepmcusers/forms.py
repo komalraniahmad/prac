@@ -4,10 +4,10 @@ from django.contrib.auth.forms import AuthenticationForm
 from mpgepmcusers.models import mpgepmcusersUser, GENDER_CHOICES, OTHER
 from mpgepmcusers.validators import (
     mpgepmcusers_validate_birth_date,
-    mpgepmcusers_validate_email_domain,
     mpgepmcusers_validate_mobile_number,
     mpgepmcusers_validate_password_complexity,
-    mpgepmcusers_validate_name_format_and_length
+    mpgepmcusers_validate_name_format_and_length,
+    mpgepmcusers_validate_email, # UPDATED: Renamed validator
 )
 
 # --- NEW CHOICES FOR THE CUSTOM GENDER DROPDOWN ---
@@ -137,7 +137,8 @@ class mpgepmcusersSignupForm(forms.ModelForm):
     def clean_email(self):
         email = self.cleaned_data.get('email')
         if email:
-            mpgepmcusers_validate_email_domain(email)
+            # UPDATED: Use the combined email validator
+            mpgepmcusers_validate_email(email)
             # Check uniqueness 
             if mpgepmcusersUser.objects.filter(email=email).exists():
                 raise forms.ValidationError("This email is already registered.")
