@@ -3,8 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>mpgepmc - {{ title }}</title>
+    <title>mpgepmc - User Registration</title>
     <style>
+        /* CSS from snippet 2 */
         body { font-family: Arial, sans-serif; background-color: #f0f4f8; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
         .container { background-color: #ffffff; padding: 30px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1); max-width: 600px; width: 90%; }
         h1 { color: #2c3e50; text-align: center; margin-bottom: 25px; }
@@ -30,6 +31,8 @@
         .live-feedback { font-size: 0.8em; margin-top: 5px; height: 1.5em; }
         .feedback-error { color: #e74c3c; }
         .feedback-success { color: #2ecc71; }
+        /* Server-side error messages from first snippet */
+        .error-message { color: #e74c3c; font-size: 0.9em; display: block; margin-top: 5px; } 
     </style>
 </head>
 <body>
@@ -58,6 +61,7 @@
                 <label for="{{ form.middle_name.id_for_label }}">Middle Name (Optional, 1-64 letters if present, allowed: letters, space, ., -, _)</label>
                 {{ form.middle_name }}
                 <div class="live-feedback" id="feedback-middle_name"></div>
+                {{ form.middle_name.errors }}
             </div>
 
             <div class="form-group">
@@ -68,12 +72,23 @@
             </div>
 
             <div class="form-group">
-                <label for="{{ form.gender.id_for_label }}">Gender (Required)</label>
+                <label for="id_gender">{{ form.gender.label }}</label>
                 {{ form.gender }}
+                {% for error in form.gender.errors %}
+                    <span class="error-message">{{ error }}</span>
+                {% endfor %}
                 <div class="live-feedback" id="feedback-gender"></div>
-                {{ form.gender.errors }}
             </div>
 
+            <div class="form-group" id="custom-gender-group" style="display: none;">
+                <label for="id_custom_gender">{{ form.custom_gender.label }}</label>
+                {{ form.custom_gender }}
+                {% for error in form.custom_gender.errors %}
+                    <span class="error-message">{{ error }}</span>
+                {% endfor %}
+                <div class="live-feedback" id="feedback-custom_gender"></div>
+            </div>
+            
             <div class="form-group">
                 <label for="{{ form.date_of_birth.id_for_label }}">Date of Birth (Min 12 yrs, Max 150 yrs)</label>
                 {{ form.date_of_birth }}
@@ -117,16 +132,55 @@
         const form = document.getElementById('signup-form');
         const submitBtn = document.getElementById('submit-btn');
         const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+        
+        // Use all fields that need AJAX validation for *some* reason
+        const ajaxFields = ['first_name', 'middle_name', 'last_name', 'gender', 'custom_gender', 'date_of_birth', 'email', 'mobile_number', 'password'];
+        
+        // Fields that must be filled for the form to submit
         const requiredFields = ['first_name', 'last_name', 'gender', 'date_of_birth', 'email', 'mobile_number', 'password', 'password_confirm'];
-        const ajaxFields = ['first_name', 'middle_name', 'last_name', 'gender', 'date_of_birth', 'email', 'mobile_number', 'password'];
-        const validationStatus = {}; // Tracks the validity of each field
+        
+        const validationStatus = {}; // Tracks the AJAX/client-side validity of each field
+        const OTHER_GENDER_CODE = 'O'; // Matches the 'Other' value from Django models.py
 
-        // Initialize status for all fields to false
+        // Initialize status for all required fields to false
         requiredFields.forEach(field => validationStatus[field] = false);
         // Middle name is optional, so it is true by default
         validationStatus['middle_name'] = true;
+        // custom_gender is conditionally required, start as true (not required yet)
+        validationStatus['custom_gender'] = true; 
 
+        // --- Helper Functions ---
 
+        /**
+         * Toggles visibility of the custom gender input field based on 'gender' selection.
+         */
+        function checkCustomGenderVisibility() {
+            const genderSelect = document.getElementById('id_gender');
+            const customGenderGroup = document.getElementById('custom-gender-group');
+            const customGenderInput = document.getElementById('id_custom_gender');
+            
+            if (genderSelect.value === OTHER_GENDER_CODE) {
+                customGenderGroup.style.display = 'block';
+                // Note: Removing the HTML required attribute and relying on JS/Server validation is safer
+                // customGenderInput.setAttribute('required', 'required'); 
+                
+                // If the input is now visible, its validation status must be re-evaluated
+                validationStatus['custom_gender'] = customGenderInput.value.trim() !== ''; 
+                
+            } else {
+                customGenderGroup.style.display = 'none';
+                // customGenderInput.removeAttribute('required');
+                customGenderInput.value = ''; // Clear value when hidden
+                
+                // Manually mark as valid if not 'Other'
+                validationStatus['custom_gender'] = true; 
+                
+                // Clear any error messages that might be displayed
+                const feedbackElement = document.getElementById('feedback-custom_gender');
+                if (feedbackElement) feedbackElement.innerHTML = '';
+            }
+        }
+        
         /**
          * Generic function to send AJAX request for live validation.
          */
@@ -136,9 +190,11 @@
             
             if (!feedbackElement) return;
 
-            // Clear previous state
-            feedbackElement.className = 'live-feedback';
-            feedbackElement.innerHTML = ''; 
+            // Clear previous state and show loading if it's not an empty optional field
+            if (fieldName !== 'middle_name' || value.trim() !== '') {
+                feedbackElement.className = 'live-feedback';
+                feedbackElement.innerHTML = 'Checking...'; 
+            }
 
             // If middle name is empty, it's immediately valid. Prevents unnecessary AJAX call.
             if (fieldName === 'middle_name' && value.trim() === '') {
@@ -147,7 +203,32 @@
                 checkFormValidity();
                 return;
             }
+            
+            // --- Custom Data Payload for Contextual Validation (FIXED) ---
+            const data = {
+                'field': fieldName, // Note: Server expects 'field' from the first snippet
+                'value': value,
+            };
 
+            const genderSelect = document.getElementById('id_gender');
+            
+            // Include related values for gender/custom_gender validation
+            if (fieldName === 'gender') {
+                // When 'gender' changes, send 'custom_gender' value for server-side check
+                data['custom_gender'] = document.getElementById('id_custom_gender').value;
+            } else if (fieldName === 'custom_gender') {
+                 // When 'custom_gender' is typed, send 'gender' value for server-side check
+                 data['gender'] = genderSelect.value;
+                 
+                 // If 'Other' is not selected, skip validation entirely (should be caught by visibility check, but this is a final guard)
+                 if (genderSelect.value !== OTHER_GENDER_CODE) {
+                     validationStatus['custom_gender'] = true;
+                     checkFormValidity();
+                     return;
+                 }
+            }
+            // --- END Custom Data Payload ---
+            
             try {
                 const response = await fetch(url, {
                     method: 'POST',
@@ -155,26 +236,27 @@
                         'Content-Type': 'application/json',
                         'X-CSRFToken': csrfToken
                     },
-                    body: JSON.stringify({ field: fieldName, value: value })
+                    body: JSON.stringify(data)
                 });
 
-                const data = await response.json();
+                const responseData = await response.json();
                 
                 // Update live feedback
-                if (data.is_valid) {
-                    feedbackElement.innerHTML = '&#10003; Valid'; // Checkmark
+                if (responseData.is_valid) {
+                    feedbackElement.innerHTML = '&#10003; Valid'; 
                     feedbackElement.classList.remove('feedback-error');
                     feedbackElement.classList.add('feedback-success');
                     validationStatus[fieldName] = true;
                 } else {
-                    feedbackElement.innerHTML = data.error || 'Invalid input.';
+                    feedbackElement.innerHTML = responseData.error || 'Invalid input.';
                     feedbackElement.classList.remove('feedback-success');
                     feedbackElement.classList.add('feedback-error');
                     validationStatus[fieldName] = false;
                 }
             } catch (error) {
-                // If network/server error
+                // Network/server error
                 feedbackElement.innerHTML = 'Validation error.';
+                feedbackElement.classList.remove('feedback-success');
                 feedbackElement.classList.add('feedback-error');
                 validationStatus[fieldName] = false;
             }
@@ -191,6 +273,7 @@
 
             feedbackElement.className = 'live-feedback';
 
+            // Only check if both fields have content
             if (password === '' || passwordConfirm === '') {
                 feedbackElement.innerHTML = '';
                 validationStatus['password_confirm'] = false;
@@ -213,59 +296,92 @@
          */
         function checkFormValidity() {
             // 1. Check if all REQUIRED fields are filled (basic check)
-            const allRequiredFieldsFilled = requiredFields.every(field => {
+            let allRequiredFieldsFilled = requiredFields.every(field => {
                 const input = document.getElementById(`id_${field}`);
-                return input && input.value.trim() !== '';
+                // Only check for non-empty value if the input exists
+                return input && input.value.trim() !== ''; 
             });
-
-            // 2. Check if all fields (required + middle_name) passed the validation status
-            const allValidationPassed = Object.values(validationStatus).every(status => status === true);
             
+            // Special required check for custom_gender when 'Other' is selected
+            const genderSelect = document.getElementById('id_gender');
+            const customGenderInput = document.getElementById('id_custom_gender');
+            if (genderSelect.value === OTHER_GENDER_CODE) {
+                if (customGenderInput && customGenderInput.value.trim() === '') {
+                    allRequiredFieldsFilled = false;
+                }
+            }
+
+            // 2. Check if all fields (required + middle_name + custom_gender) passed the validation status
+            let allValidationPassed = true;
+            
+            // Check required fields (including password_confirm which is client-side only)
+            if (!requiredFields.every(field => validationStatus[field] === true)) {
+                allValidationPassed = false;
+            }
+            
+            // Check optional fields that were filled
+            if (!validationStatus['middle_name']) {
+                 allValidationPassed = false;
+            }
+            
+            // Check custom_gender validation status (only relevant if 'Other' is selected)
+            if (genderSelect.value === OTHER_GENDER_CODE && !validationStatus['custom_gender']) {
+                 allValidationPassed = false;
+            }
+
             // The submit button is enabled ONLY if ALL required fields are filled AND all validations passed.
             submitBtn.disabled = !(allRequiredFieldsFilled && allValidationPassed);
         }
 
-        // --- Event Listeners ---
+        // --- Event Listeners (FIXED AND CONSOLIDATED) ---
         
-        // 1. Live AJAX validation for complex/server checks
+        // Live AJAX validation for complex/server checks
         ajaxFields.forEach(fieldName => {
             const input = document.getElementById(`id_${fieldName}`);
             if (input) {
-                // Use 'change' for DOB and 'blur' for other unique/complex fields
-                const eventType = (fieldName === 'date_of_birth' || fieldName === 'gender') ? 'change' : 'blur';
+                let eventType = 'blur'; 
+                if (fieldName === 'date_of_birth' || fieldName === 'gender') {
+                     eventType = 'change'; // Select boxes and dates use change
+                } else if (fieldName === 'custom_gender') {
+                     eventType = 'input'; // Text input should validate on input/keyup, use input
+                }
+                
                 input.addEventListener(eventType, () => {
                     runAjaxValidation(fieldName, input.value);
                 });
             }
         });
 
-        // 2. Client-side validation for password match and required field check
+        // Client-side validation for password match
         ['password', 'password_confirm'].forEach(fieldName => {
-             const input = document.getElementById(`id_${fieldName}`);
-             if (input) {
-                input.addEventListener('input', checkPasswordMatch);
-                input.addEventListener('input', checkFormValidity);
-             }
-        });
-
-        // 3. For all required fields, run basic check on input
-        requiredFields.forEach(fieldName => {
             const input = document.getElementById(`id_${fieldName}`);
             if (input) {
+                input.addEventListener('input', checkPasswordMatch);
+                // Also need to check form validity on password input, as it affects the 'filled' state
                 input.addEventListener('input', checkFormValidity);
             }
         });
-
-        // 4. Specifically watch middle_name input to set validation status to false if something is typed, forcing an AJAX check
-        document.getElementById('id_middle_name').addEventListener('input', (e) => {
-            // When input starts, mark as false so the form can be disabled until validation runs on blur
-            validationStatus['middle_name'] = (e.target.value.trim() === '');
+        
+        // Handle gender change for visibility and validation
+        document.getElementById('id_gender').addEventListener('change', () => {
+            checkCustomGenderVisibility();
+            // Manually run AJAX validation on gender change (to check conditional requirement)
+            runAjaxValidation('gender', document.getElementById('id_gender').value);
+            // After changing gender, custom_gender validation might need to be re-run if it's now visible/required
+            runAjaxValidation('custom_gender', document.getElementById('id_custom_gender').value);
             checkFormValidity();
         });
-        
-        // Initial check on load
-        checkFormValidity();
 
+        // Specifically watch middle_name input to disable form if something is typed, forcing an AJAX check on blur
+        document.getElementById('id_middle_name').addEventListener('input', (e) => {
+             // If a value exists, temporarily mark validation as false until AJAX runs on blur
+             validationStatus['middle_name'] = (e.target.value.trim() === '');
+             checkFormValidity();
+        });
+
+        // --- Initial Checks ---
+        checkCustomGenderVisibility(); 
+        checkFormValidity();
     </script>
 </body>
 </html>

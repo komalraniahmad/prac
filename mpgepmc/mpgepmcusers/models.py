@@ -2,7 +2,23 @@ from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin, BaseUserManager
 from django.utils import timezone
 from datetime import timedelta
-from mpgepmc.settings import OTP_EXPIRY_TIME
+# Assuming this import is correct based on the snippet context
+from mpgepmc.settings import OTP_EXPIRY_TIME 
+
+# --- GENDER CONSTANTS & CHOICES ---
+MALE = 'M'
+FEMALE = 'F'
+OTHER = 'O' # Constant for 'Other' choice
+
+# Use the constants for GENDER_CHOICES
+GENDER_CHOICES = [
+    (MALE, 'Male'),
+    (FEMALE, 'Female'),
+    # Updated choice text to align with conditional form logic
+    (OTHER, 'Other (must specify)'),
+]
+# --- END GENDER CONSTANTS & CHOICES ---
+
 
 # Custom Manager for mpgepmcusersUser
 class mpgepmcusersUserManager(BaseUserManager):
@@ -15,6 +31,8 @@ class mpgepmcusersUserManager(BaseUserManager):
         email = self.normalize_email(email)
         user = self.model(email=email, **extra_fields)
         user.set_password(password)
+        # Set is_active=False by default for new users awaiting verification
+        user.is_active = extra_fields.pop('is_active', False) 
         user.save(using=self._db)
         return user
 
@@ -32,25 +50,39 @@ class mpgepmcusersUserManager(BaseUserManager):
 
         return self.create_user(email, password, **extra_fields)
 
+
 # Custom User Model
 class mpgepmcusersUser(AbstractBaseUser, PermissionsMixin):
     """
-    Custom user model with required fields and prefix.
+    Custom user model with required fields and prefix, including custom_gender.
     """
-    GENDER_CHOICES = [
-        ('M', 'Male'),
-        ('F', 'Female'),
-        ('O', 'Others'),
-    ]
-
+    
+    # Expose the choices on the model for forms/views to easily access
+    GENDER_CHOICES = GENDER_CHOICES
+    
     # Required Fields
     first_name = models.CharField(max_length=64)
     middle_name = models.CharField(max_length=64, blank=True, null=True) # Optional
     last_name = models.CharField(max_length=64)
-    gender = models.CharField(max_length=1, choices=GENDER_CHOICES)
+    
+    # Gender field using the defined constants and choices
+    gender = models.CharField(
+        max_length=1, 
+        choices=GENDER_CHOICES,
+        default=MALE # Added a default for completeness, though signup form overrides
+    )
+    
+    # NEW FIELD: Field to store the custom gender text if 'Other' is selected.
+    custom_gender = models.CharField(
+        max_length=64,  
+        blank=True, 
+        null=True, 
+        verbose_name='Specify Gender (if Other selected)'
+    )
+    
     date_of_birth = models.DateField()
     email = models.EmailField(unique=True)
-    mobile_number = models.CharField(max_length=15, unique=True) # Assuming max 15 digits for international
+    mobile_number = models.CharField(max_length=15, unique=True) # 9 to 15 digits for international
 
     # Status Fields
     is_active = models.BooleanField(default=False) # Must be False until OTP is verified
@@ -68,6 +100,14 @@ class mpgepmcusersUser(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self):
         return self.email
+        
+    def get_full_name(self):
+        """Returns the first_name plus the last_name, with a space in between."""
+        return f"{self.first_name} {self.last_name}"
+
+    def get_short_name(self):
+        """Returns the short name for the user."""
+        return self.first_name
 
 # OTP Verification Model
 class mpgepmcusersOTP(models.Model):
@@ -89,8 +129,9 @@ class mpgepmcusersOTP(models.Model):
 
     def save(self, *args, **kwargs):
         """Sets the expiry time before saving if not already set."""
+        # Use OTP_EXPIRY_TIME from settings
         if not self.id or not self.expires_at:
-            self.expires_at = timezone.now() + OTP_EXPIRY_TIME
+            self.expires_at = timezone.now() + OTP_EXPIRY_TIME 
         super().save(*args, **kwargs)
 
     def __str__(self):

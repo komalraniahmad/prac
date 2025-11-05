@@ -7,9 +7,11 @@ from django.http import JsonResponse, HttpResponseBadRequest
 from django.views.decorators.http import require_POST
 from django.db import IntegrityError
 from django.utils import timezone # ADDED: Required for resend OTP logic
+# 💡 FIX: Import ValidationError explicitly
+from django.core.exceptions import ValidationError 
 
 from mpgepmcusers.forms import mpgepmcusersSignupForm, mpgepmcusersSignInForm
-from mpgepmcusers.models import mpgepmcusersUser, mpgepmcusersOTP
+from mpgepmcusers.models import mpgepmcusersUser, mpgepmcusersOTP, OTHER
 from mpgepmcusers.utils import mpgepmcusers_generate_otp, mpgepmcusers_send_otp_email
 from mpgepmcusers.validators import (
     mpgepmcusers_validate_birth_date, mpgepmcusers_validate_email_domain,
@@ -17,7 +19,7 @@ from mpgepmcusers.validators import (
     mpgepmcusers_validate_name_format_and_length # Existing new import
 )
 from mpgepmcusers.decorators import mpgepmcusers_unauthenticated_user
-
+from datetime import datetime
 # --- Shared Views ---
 
 def mpgepmcusers_index(request):
@@ -170,50 +172,86 @@ def mpgepmcusers_resend_otp(request):
 @require_POST
 def mpgepmcusers_ajax_validate(request):
     """
-    Handles live, asynchronous validation checks for uniqueness and other rules.
+    Handles live, asynchronous validation checks for uniqueness, format, and other rules.
+    Expects a JSON payload in request.body.
     """
-    data = json.loads(request.body)
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return HttpResponseBadRequest(json.dumps({'is_valid': False, 'error': 'Invalid JSON payload.'}))
+        
     field_name = data.get('field')
+    # Use .get('value', '') to handle missing 'value' key, then strip
     value = data.get('value', '').strip() 
     
-    # Allows empty value for middle_name, but checks for missing value on required fields if they are passed in
-    if not value and field_name not in ['middle_name']:
-        return HttpResponseBadRequest(json.dumps({'is_valid': False, 'error': 'Missing required field value.'}))
-    
+    # NEW: Include custom_gender and gender for context-specific validation
+    custom_gender_value = data.get('custom_gender', '').strip()
+    gender_field_value = data.get('gender')
+
     is_valid = True
     error_message = ''
 
+    # --- Initial Required Field Check ---
+    # middle_name is optional, all others passed in must have a value
+    if not value and field_name not in ['middle_name']:
+        return HttpResponseBadRequest(json.dumps({'is_valid': False, 'error': 'Missing required field value.'}))
+    
+    # If middle_name is empty, it's valid, so we can exit early.
+    if field_name == 'middle_name' and not value:
+        return JsonResponse({'is_valid': True, 'error': ''})
+
     try:
+        # --- Name Fields Validation ---
         if field_name in ['first_name', 'last_name']:
-            # Use the new comprehensive validator
             mpgepmcusers_validate_name_format_and_length(value, field_name.replace('_', ' ').title())
 
         elif field_name == 'middle_name':
-            if value: # Only validate if a value is present (it's optional)
-                # Use the new comprehensive validator
-                mpgepmcusers_validate_name_format_and_length(value, field_name.replace('_', ' ').title())
-            else:
-                # Value is empty, which is valid for middle_name
-                is_valid = True 
+            # Value is present (checked above), so validate it
+            mpgepmcusers_validate_name_format_and_length(value, field_name.replace('_', ' ').title())
         
+        # --- Gender Field Validation (Dropdown/Radio) ---
         elif field_name == 'gender':
-            if value not in ['M', 'F', 'O']:
+            valid_genders = [choice[0] for choice in mpgepmcusersUser.GENDER_CHOICES]
+            if value not in valid_genders:
                 is_valid = False
                 error_message = 'Invalid gender selected.'
-
+            elif value == OTHER: # 'O' for Other
+                # If 'Other' is selected, custom_gender text MUST be provided
+                if not custom_gender_value:
+                    is_valid = False
+                    error_message = 'You must specify your gender in the text box.'
+                else:
+                    # Validate the format of the custom gender text if provided
+                    mpgepmcusers_validate_name_format_and_length(custom_gender_value, 'Custom Gender')
+        
+        # --- Custom Gender Text Field Validation ---
+        elif field_name == 'custom_gender':
+            # Only validate if the user's selected gender is 'Other'
+            if gender_field_value == OTHER:
+                if not value:
+                    is_valid = False
+                    error_message = 'You must specify your gender in the text box when Other is selected.'
+                else:
+                    # Validate the format of the custom gender text
+                    mpgepmcusers_validate_name_format_and_length(value, 'Custom Gender')
+            # If gender is not 'Other', no validation is needed, it's considered valid.
+        
+        # --- Date of Birth Validation ---
         elif field_name == 'date_of_birth':
-            # Note: client-side date format is YYYY-MM-DD
-            from datetime import datetime
+            # This line could raise ValueError if the format is wrong
             dob = datetime.strptime(value, '%Y-%m-%d').date()
+            # This line could raise ValidationError if age is out of bounds
             mpgepmcusers_validate_birth_date(dob)
             
+        # --- Email Validation (Format + Uniqueness) ---
         elif field_name == 'email':
             mpgepmcusers_validate_email_domain(value)
             # Check uniqueness
             if mpgepmcusersUser.objects.filter(email=value).exists():
                 is_valid = False
                 error_message = 'This email is already registered.'
-            
+                
+        # --- Mobile Number Validation (Format + Uniqueness) ---
         elif field_name == 'mobile_number':
             mpgepmcusers_validate_mobile_number(value)
             # Check uniqueness
@@ -221,22 +259,43 @@ def mpgepmcusers_ajax_validate(request):
                 is_valid = False
                 error_message = 'This mobile number is already registered.'
 
+        # --- Password Validation ---
         elif field_name == 'password':
             mpgepmcusers_validate_password_complexity(value)
             
     except Exception as e:
         is_valid = False
-        if hasattr(e, 'message'):
+        error_message = '' # Initialize error_message
+        
+        # --- Consolidated Exception Handling (FINAL FIX) ---
+        
+        # 1. Handle Django's ValidationError explicitly
+        if isinstance(e, ValidationError):
+            # Key fix: Iterate over the ValidationError messages to force resolution of lazy strings and params
+            try:
+                error_messages = [str(msg) for msg in e] 
+                error_message = ' '.join(error_messages)
+            except Exception as inner_e:
+                error_message = f"Validation failed: {type(inner_e).__name__} during message resolution."
+                
+        # 2. Fallback for other exceptions 
+        elif hasattr(e, 'message'):
             error_message = e.message
         elif hasattr(e, 'messages') and e.messages:
             error_message = str(e.messages[0])
         else:
+            # Catch all other exceptions (e.g., ValueError from datetime.strptime)
             error_message = str(e)
             
-        # Clean up Django's ValidationError wrapper messages 
-        if error_message.startswith("['") and error_message.endswith("']"):
-            error_message = error_message[2:-2]
-        elif error_message.startswith("[") and error_message.endswith("]"):
-             error_message = error_message[1:-1]
-            
+        # 3. Clean up wrappers
+        error_message = error_message.strip("[]'\"")
+        
+        # 4. Handle specific technical errors for user-friendly output
+        if "time data" in error_message and "does not match format" in error_message:
+            error_message = "Invalid date format. Please use YYYY-MM-DD."
+        elif not error_message or error_message == "<exception str() failed>" or error_message == "Validation error.":
+             # Use a robust default message
+             error_message = "Validation error occurred. Please check your input."
+             
+    # Default response for valid or invalid fields
     return JsonResponse({'is_valid': is_valid, 'error': error_message})

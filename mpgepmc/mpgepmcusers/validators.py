@@ -28,45 +28,50 @@ def mpgepmcusers_validate_name_format_and_length(value, field_name):
 
     # 1. Check for invalid characters using the strict regex
     if not re.fullmatch(NAME_REGEX, value):
+        # FIXED: Pass params to ValidationError
         raise ValidationError(
-            _('Name can only contain letters (A-Z), spaces, periods (.), hyphens (-), and underscores (_). No numbers or other symbols allowed.'),
+            _('%(field_name)s contains invalid characters. Only letters, spaces, periods (.), hyphens (-), and underscores (_) are allowed.'),
+            params={'field_name': field_name},
             code='invalid_name_format'
         )
 
-    # 2. Check for letter count (min 1, max 64)
-    # Count only the alphabetic characters in the string
-    letter_count = len([c for c in value if c.isalpha()])
-
+    # 2. Check letter count (only letters count for min/max check)
+    letter_count = sum(1 for char in value if char.isalpha())
     if letter_count < MIN_NAME_LETTERS:
-        # A name with only symbols/spaces is invalid based on 1-64 letter requirement
+        # FIXED: Pass params to ValidationError
         raise ValidationError(
-            _('%(field)s must contain at least 1 letter.', params={'field': field_name}),
-            code='too_short'
+            _('%(field_name)s must contain at least %(min)s letters (non-letter characters are ignored).'),
+            params={'field_name': field_name, 'min': MIN_NAME_LETTERS},
+            code='name_too_short'
         )
     if letter_count > MAX_NAME_LETTERS:
+        # FIXED: Pass params to ValidationError
         raise ValidationError(
-            _('%(field)s must not exceed 64 letters (spaces and symbols are ignored in the count).', params={'field': field_name}),
-            code='too_long'
+            _('%(field_name)s cannot contain more than %(max)s letters (non-letter characters are ignored).'),
+            params={'field_name': field_name, 'max': MAX_NAME_LETTERS},
+            code='name_too_long'
         )
 
 
 def mpgepmcusers_validate_birth_date(value):
     """
-    Validates if the date of birth corresponds to a minimum age of 12
-    and a maximum age of 150.
+    Validates the date of birth, ensuring the user is between MIN_AGE (12) and MAX_AGE (150).
     """
     today = date.today()
     age = today.year - value.year - ((today.month, today.day) < (value.month, value.day))
 
     if age < MIN_AGE:
-        # FIXED: Professional Age Error Message
+        # FIXED: Pass params to ValidationError
         raise ValidationError(
-            _('You must be at least %(min_age)s years old to register.', params={'min_age': MIN_AGE}),
+            _('you are under age %(min_age)s yrs'),
+            params={'min_age': MIN_AGE},
             code='too_young'
         )
     if age > MAX_AGE:
+        # FIXED: Pass params to ValidationError
         raise ValidationError(
-            _('Date of birth is invalid. Maximum age allowed is 150 years.'),
+            _('you are over age %(max_age)s yrs'),
+            params={'max_age': MAX_AGE},
             code='too_old'
         )
 
@@ -77,9 +82,10 @@ def mpgepmcusers_validate_email_domain(value):
     domain = value.split('@')[-1].lower()
     allowed_domains_str = ', '.join(ALLOWED_DOMAINS)
     if domain not in ALLOWED_DOMAINS:
-        # FIXED: Professional Email Domain Error Message
+        # FIXED: Pass params to ValidationError
         raise ValidationError(
-            _('Invalid email domain. Must be one of: %(domains)s.', params={'domains': allowed_domains_str}),
+            _('Invalid email domain. Must be one of: %(domains)s.'),
+            params={'domains': allowed_domains_str},
             code='invalid_domain'
         )
 
@@ -99,6 +105,6 @@ def mpgepmcusers_validate_mobile_number(value):
     """
     if not re.fullmatch(MOBILE_REGEX, value):
         raise ValidationError(
-            _('Enter a valid mobile number (9 to 15 digits, optional +).'),
-            code='invalid_mobile'
+            _('Enter a valid mobile number.'),
+            code='invalid_mobile_number'
         )

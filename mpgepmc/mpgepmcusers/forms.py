@@ -1,6 +1,7 @@
 from django import forms
 from django.contrib.auth.forms import AuthenticationForm
-from mpgepmcusers.models import mpgepmcusersUser
+# UPDATED IMPORT: Import GENDER_CHOICES and OTHER constant
+from mpgepmcusers.models import mpgepmcusersUser, GENDER_CHOICES, OTHER
 from mpgepmcusers.validators import (
     mpgepmcusers_validate_birth_date,
     mpgepmcusers_validate_email_domain,
@@ -11,8 +12,10 @@ from mpgepmcusers.validators import (
 
 class mpgepmcusersSignupForm(forms.ModelForm):
     """
-    Form for user registration, including password and confirmation.
+    Form for user registration, including password confirmation and 
+    conditional validation for custom_gender.
     """
+    # --- Custom Form Fields (Not in Model) ---
     password = forms.CharField(
         widget=forms.PasswordInput,
         label='Password',
@@ -27,44 +30,92 @@ class mpgepmcusersSignupForm(forms.ModelForm):
         max_length=52,
     )
 
+    # NEW FIELD: custom_gender text input (used when 'gender' is 'OTHER')
+    custom_gender = forms.CharField(
+        required=False, # Required status is handled in clean_gender based on 'gender' value
+        max_length=64,
+        label='Specify Gender',
+        widget=forms.TextInput(attrs={'placeholder': 'Please specify your gender'})
+    )
+
     class Meta:
         model = mpgepmcusersUser
         fields = (
             'first_name', 'middle_name', 'last_name', 'gender',
-            'date_of_birth', 'email', 'mobile_number',
+            'date_of_birth', 'email', 'mobile_number', 'custom_gender', # Include custom_gender
         )
         widgets = {
             'date_of_birth': forms.DateInput(attrs={'type': 'date'}),
         }
         labels = {
             'first_name': 'First Name',
-            'middle_name': 'Middle Name (Optional)', # Updated label
+            'middle_name': 'Middle Name (Optional)', 
             'last_name': 'Last Name',
             'mobile_number': 'Mobile Number',
         }
+    
+    # --- Initialization for Field Ordering ---
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        
+        # Ensure 'custom_gender' is placed right after 'gender' for better UX
+        field_order = list(self.fields.keys())
+        if 'gender' in field_order and 'custom_gender' in field_order:
+            gender_index = field_order.index('gender')
+            
+            # Remove 'custom_gender' from its current position
+            field_order.pop(field_order.index('custom_gender'))
+            # Insert 'custom_gender' after 'gender'
+            field_order.insert(gender_index + 1, 'custom_gender')
 
-    # Custom Field Validation (using ModelForm's clean_<field> methods)
+        self.order_fields(field_order)
+
+    # --- Custom Field Validation (clean_<field> methods) ---
+
     def clean_first_name(self):
         name = self.cleaned_data.get('first_name')
-        # Use the new comprehensive validator
         mpgepmcusers_validate_name_format_and_length(name, 'First Name')
         return name
 
-    # Middle Name is optional, only validate length/format if provided
+    # Middle Name is optional, only validate format if provided
     def clean_middle_name(self):
         name = self.cleaned_data.get('middle_name')
-        if name: # Only validate if a value is present
-            # Use the new comprehensive validator
+        if name:
             mpgepmcusers_validate_name_format_and_length(name, 'Middle Name')
-        # If blank, it passes silently, fulfilling the optional requirement.
         return name
 
     def clean_last_name(self):
         name = self.cleaned_data.get('last_name')
-        # Use the new comprehensive validator
         mpgepmcusers_validate_name_format_and_length(name, 'Last Name')
         return name
 
+    # UPDATED: Clean method for gender and custom_gender
+    def clean_gender(self):
+        gender = self.cleaned_data.get('gender')
+        custom_gender = self.cleaned_data.get('custom_gender')
+
+        if gender == OTHER: # 'O' for Other
+            # 1. Check required value
+            if not custom_gender or custom_gender.strip() == '':
+                raise forms.ValidationError("You must specify your gender in the text box when 'Other' is selected.")
+            
+            # 2. Validate format of custom_gender
+            try:
+                # Use the existing name validator for the custom gender text
+                mpgepmcusers_validate_name_format_and_length(custom_gender, 'Custom Gender')
+            except Exception as e:
+                # Re-raise with a specific error message
+                error_message = str(e)
+                # Clean up potential Django ValidationError list wrapper if needed
+                if error_message.startswith("['") and error_message.endswith("']"):
+                    error_message = error_message[2:-2]
+                elif error_message.startswith("[") and error_message.endswith("]"):
+                    error_message = error_message[1:-1]
+
+                raise forms.ValidationError(f"Invalid custom gender format: {error_message}")
+                
+        return gender
+        
     def clean_date_of_birth(self):
         dob = self.cleaned_data.get('date_of_birth')
         if dob:
@@ -89,6 +140,8 @@ class mpgepmcusersSignupForm(forms.ModelForm):
                 raise forms.ValidationError("This mobile number is already registered.")
         return mobile
 
+    # --- Global Form Validation and Save ---
+
     def clean(self):
         """
         Global form validation, primarily for password matching.
@@ -109,13 +162,18 @@ class mpgepmcusersSignupForm(forms.ModelForm):
         user = super().save(commit=False)
         user.set_password(self.cleaned_data["password"])
         # is_active remains False, awaiting OTP verification
+        
+        # If the user selected 'Other' gender, set the custom_gender on the model instance
+        if user.gender == OTHER:
+            user.custom_gender = self.cleaned_data.get('custom_gender')
+            
         if commit:
             user.save()
         return user
 
+
 class mpgepmcusersSignInForm(AuthenticationForm):
     """
-    Standard Django Authentication form with custom prefix.
+    Standard Django Authentication form.
     """
-    # Simply inheriting for consistency and potential future customization
     pass
