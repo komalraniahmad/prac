@@ -6,13 +6,15 @@ from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse, HttpResponseBadRequest
 from django.views.decorators.http import require_POST
 from django.db import IntegrityError
+from django.utils import timezone # ADDED: Required for resend OTP logic
 
-from mpgepmcusers.forms import mpgepmcusersSignupForm, mpgepmcusersSignInForm, count_letters
+from mpgepmcusers.forms import mpgepmcusersSignupForm, mpgepmcusersSignInForm
 from mpgepmcusers.models import mpgepmcusersUser, mpgepmcusersOTP
 from mpgepmcusers.utils import mpgepmcusers_generate_otp, mpgepmcusers_send_otp_email
 from mpgepmcusers.validators import (
     mpgepmcusers_validate_birth_date, mpgepmcusers_validate_email_domain,
-    mpgepmcusers_validate_mobile_number, mpgepmcusers_validate_password_complexity
+    mpgepmcusers_validate_mobile_number, mpgepmcusers_validate_password_complexity,
+    mpgepmcusers_validate_name_format_and_length # Existing new import
 )
 from mpgepmcusers.decorators import mpgepmcusers_unauthenticated_user
 
@@ -31,69 +33,64 @@ def mpgepmcusers_home(request):
 
 @mpgepmcusers_unauthenticated_user
 def mpgepmcusers_signin(request):
-    """User Sign-in View."""
     if request.method == 'POST':
-        form = mpgepmcusersSignInForm(data=request.POST)
+        form = mpgepmcusersSignInForm(request, data=request.POST)
         if form.is_valid():
             user = form.get_user()
+            # Check if user is active (i.e., verified)
             if user.is_active:
                 login(request, user)
-                messages.success(request, f"Welcome back, {user.first_name}!")
                 return redirect('mpgepmcusers:home')
             else:
-                # Redirect to verification if not active
-                messages.warning(request, "Your account is not yet verified. Please verify your email.")
-                request.session['unverified_email'] = user.email
+                # If account is not active, redirect to OTP verification
+                messages.warning(request, 'Your account is not verified. Please verify using the OTP sent to your email.')
+                request.session['unverified_email'] = user.email # Ensure email is set for verification
                 return redirect('mpgepmcusers:otp_verify')
         else:
-            messages.error(request, "Invalid credentials.")
+            messages.error(request, 'Invalid email or password.')
     else:
         form = mpgepmcusersSignInForm()
+        
+    return render(request, 'mpgepmcusers/mpgepmcusers_signin.html', {'form': form, 'title': 'Sign In'})
 
-    context = {'form': form, 'title': 'Sign In'}
-    return render(request, 'mpgepmcusers/mpgepmcusers_signin.html', context)
-
+@login_required
 def mpgepmcusers_logout(request):
-    """User Logout View."""
     logout(request)
-    messages.success(request, "You have been logged out successfully.")
-    return redirect('mpgepmcusers:index')
+    messages.success(request, 'You have been successfully logged out.')
+    return redirect('mpgepmcusers:signin')
 
 # --- Registration Views ---
 
 @mpgepmcusers_unauthenticated_user
 def mpgepmcusers_signup(request):
-    """User Registration/Signup View."""
     if request.method == 'POST':
         form = mpgepmcusersSignupForm(request.POST)
         if form.is_valid():
             try:
                 user = form.save()
+                # 1. Generate OTP
                 otp_code = mpgepmcusers_generate_otp(user)
                 
-                # Send (Simulated) OTP email
-                if mpgepmcusers_send_otp_email(user, otp_code):
-                    messages.success(request, "Registration successful! Check your email for the verification code.")
-                    # Store the email in session for the OTP verification step
-                    request.session['unverified_email'] = user.email
-                    return redirect('mpgepmcusers:otp_verify')
-                else:
-                    user.delete() # Rollback user creation if email fails
-                    messages.error(request, "Could not send verification email. Please try again later.")
-                    return redirect('mpgepmcusers:signup')
+                # 2. Send OTP (Simulated)
+                mpgepmcusers_send_otp_email(user, otp_code)
+                
+                # 3. Store email in session to verify
+                request.session['unverified_email'] = user.email
+                messages.success(request, 'Registration successful. An OTP has been sent to your email for verification.')
+                return redirect('mpgepmcusers:otp_verify')
             except IntegrityError:
-                # Catch race condition or final unique constraint error
-                messages.error(request, "A user with this email or mobile number already exists.")
+                # Handle database errors (though uniqueness should be caught in form.is_valid)
+                messages.error(request, 'A user with this email or mobile number already exists.')
             except Exception as e:
-                print(f"Signup error: {e}")
-                messages.error(request, "An unexpected error occurred during registration.")
+                messages.error(request, f'An unexpected error occurred: {e}')
         else:
-            messages.error(request, "Please correct the errors below.")
+            messages.error(request, 'Please correct the errors below.')
     else:
         form = mpgepmcusersSignupForm()
+        
+    return render(request, 'mpgepmcusers/mpgepmcusers_signup.html', {'form': form, 'title': 'Sign Up'})
 
-    context = {'form': form, 'title': 'User Registration'}
-    return render(request, 'mpgepmcusers/mpgepmcusers_signup.html', context)
+# --- Verification Views (Fix for the error) ---
 
 def mpgepmcusers_otp_verify(request):
     """OTP Verification View."""
@@ -107,7 +104,8 @@ def mpgepmcusers_otp_verify(request):
     
     if user.is_active:
         # User is already verified
-        del request.session['unverified_email']
+        if 'unverified_email' in request.session:
+            del request.session['unverified_email']
         return redirect('mpgepmcusers:signin')
 
     if request.method == 'POST':
@@ -115,12 +113,15 @@ def mpgepmcusers_otp_verify(request):
         try:
             otp_record = mpgepmcusersOTP.objects.get(user=user)
             
-            if otp_record.otp_code == otp_code and not otp_record.is_expired():
+            if otp_code is None or not otp_code.strip():
+                 messages.error(request, "Please enter the OTP code.")
+            elif otp_record.otp_code == otp_code.strip() and not otp_record.is_expired():
                 # Verification success
                 user.is_active = True
                 user.save()
                 otp_record.delete()
-                del request.session['unverified_email']
+                if 'unverified_email' in request.session:
+                    del request.session['unverified_email']
                 messages.success(request, "Account successfully verified! Please sign in.")
                 return redirect('mpgepmcusers:signin')
             elif otp_record.is_expired():
@@ -148,7 +149,8 @@ def mpgepmcusers_resend_otp(request):
         # Prevent spamming: Check if an OTP was recently generated (e.g., in the last 60 seconds)
         try:
             last_otp = mpgepmcusersOTP.objects.get(user=user)
-            if (last_otp.created_at + last_otp.user.get_otp_resend_throttle()) > timezone.now():
+            # Assuming get_otp_resend_throttle() is a method on the User model
+            if (last_otp.created_at + user.get_otp_resend_throttle()) > timezone.now():
                  return JsonResponse({'success': False, 'message': 'Wait a moment before resending.'}, status=429)
         except mpgepmcusersOTP.DoesNotExist:
             pass # No existing OTP, so proceed.
@@ -172,7 +174,7 @@ def mpgepmcusers_ajax_validate(request):
     """
     data = json.loads(request.body)
     field_name = data.get('field')
-    value = data.get('value', '').strip() # Ensure value is retrieved, strip whitespace for counting
+    value = data.get('value', '').strip() 
     
     # Allows empty value for middle_name, but checks for missing value on required fields if they are passed in
     if not value and field_name not in ['middle_name']:
@@ -182,22 +184,18 @@ def mpgepmcusers_ajax_validate(request):
     error_message = ''
 
     try:
-        if field_name == 'first_name' or field_name == 'last_name':
-            letter_count = count_letters(value)
-            if not (1 <= letter_count <= 64):
-                is_valid = False
-                error_message = f"{field_name.replace('_', ' ').title()} must contain 1-64 letters (spaces ignored)."
+        if field_name in ['first_name', 'last_name']:
+            # Use the new comprehensive validator
+            mpgepmcusers_validate_name_format_and_length(value, field_name.replace('_', ' ').title())
 
         elif field_name == 'middle_name':
             if value: # Only validate if a value is present (it's optional)
-                letter_count = count_letters(value)
-                if not (1 <= letter_count <= 64):
-                    is_valid = False
-                    error_message = "Middle Name must contain 1-64 letters (spaces ignored)."
+                # Use the new comprehensive validator
+                mpgepmcusers_validate_name_format_and_length(value, field_name.replace('_', ' ').title())
             else:
                 # Value is empty, which is valid for middle_name
                 is_valid = True 
-
+        
         elif field_name == 'gender':
             if value not in ['M', 'F', 'O']:
                 is_valid = False
@@ -208,14 +206,14 @@ def mpgepmcusers_ajax_validate(request):
             from datetime import datetime
             dob = datetime.strptime(value, '%Y-%m-%d').date()
             mpgepmcusers_validate_birth_date(dob)
-        
+            
         elif field_name == 'email':
             mpgepmcusers_validate_email_domain(value)
             # Check uniqueness
             if mpgepmcusersUser.objects.filter(email=value).exists():
                 is_valid = False
                 error_message = 'This email is already registered.'
-        
+            
         elif field_name == 'mobile_number':
             mpgepmcusers_validate_mobile_number(value)
             # Check uniqueness
@@ -225,12 +223,20 @@ def mpgepmcusers_ajax_validate(request):
 
         elif field_name == 'password':
             mpgepmcusers_validate_password_complexity(value)
-        
+            
     except Exception as e:
         is_valid = False
-        error_message = str(e.message) if hasattr(e, 'message') else str(e)
-        # Clean up ValidationError wrapper messages
-        if error_message.startswith('[') and error_message.endswith(']'):
-            error_message = error_message[2:-2] # Remove [ and ] and single quotes
-
+        if hasattr(e, 'message'):
+            error_message = e.message
+        elif hasattr(e, 'messages') and e.messages:
+            error_message = str(e.messages[0])
+        else:
+            error_message = str(e)
+            
+        # Clean up Django's ValidationError wrapper messages 
+        if error_message.startswith("['") and error_message.endswith("']"):
+            error_message = error_message[2:-2]
+        elif error_message.startswith("[") and error_message.endswith("]"):
+             error_message = error_message[1:-1]
+            
     return JsonResponse({'is_valid': is_valid, 'error': error_message})

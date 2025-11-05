@@ -48,20 +48,20 @@
             {% csrf_token %}
 
             <div class="form-group">
-                <label for="{{ form.first_name.id_for_label }}">First Name (Required, 1-64 letters)</label>
+                <label for="{{ form.first_name.id_for_label }}">First Name (Required, 1-64 letters, allowed: letters, space, ., -, _)</label>
                 {{ form.first_name }}
                 <div class="live-feedback" id="feedback-first_name"></div>
                 {{ form.first_name.errors }}
             </div>
 
             <div class="form-group">
-                <label for="{{ form.middle_name.id_for_label }}">Middle Name (Optional)</label>
+                <label for="{{ form.middle_name.id_for_label }}">Middle Name (Optional, 1-64 letters if present, allowed: letters, space, ., -, _)</label>
                 {{ form.middle_name }}
                 <div class="live-feedback" id="feedback-middle_name"></div>
             </div>
 
             <div class="form-group">
-                <label for="{{ form.last_name.id_for_label }}">Last Name (Required, 1-64 letters)</label>
+                <label for="{{ form.last_name.id_for_label }}">Last Name (Required, 1-64 letters, allowed: letters, space, ., -, _)</label>
                 {{ form.last_name }}
                 <div class="live-feedback" id="feedback-last_name"></div>
                 {{ form.last_name.errors }}
@@ -136,9 +136,9 @@
             
             if (!feedbackElement) return;
 
-            // Clear previous state and show loading if complex check
+            // Clear previous state
             feedbackElement.className = 'live-feedback';
-            feedbackElement.innerHTML = fieldName.includes('password') ? 'Checking...' : ''; 
+            feedbackElement.innerHTML = ''; 
 
             // If middle name is empty, it's immediately valid. Prevents unnecessary AJAX call.
             if (fieldName === 'middle_name' && value.trim() === '') {
@@ -147,7 +147,6 @@
                 checkFormValidity();
                 return;
             }
-
 
             try {
                 const response = await fetch(url, {
@@ -259,9 +258,8 @@
 
         // 4. Specifically watch middle_name input to set validation status to false if something is typed, forcing an AJAX check
         document.getElementById('id_middle_name').addEventListener('input', (e) => {
-            if (e.target.value.trim() !== '') {
-                validationStatus['middle_name'] = false; // Invalidates status, forcing validation check on blur
-            }
+            // When input starts, mark as false so the form can be disabled until validation runs on blur
+            validationStatus['middle_name'] = (e.target.value.trim() === '');
             checkFormValidity();
         });
         

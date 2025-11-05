@@ -5,15 +5,9 @@ from mpgepmcusers.validators import (
     mpgepmcusers_validate_birth_date,
     mpgepmcusers_validate_email_domain,
     mpgepmcusers_validate_mobile_number,
-    mpgepmcusers_validate_password_complexity
+    mpgepmcusers_validate_password_complexity,
+    mpgepmcusers_validate_name_format_and_length
 )
-
-# HELPER FUNCTION: Counts only letter characters, ignoring spaces
-def count_letters(value):
-    if not value:
-        return 0
-    # Returns the length of the string composed only of letters (A-Z, a-z)
-    return len([c for c in value if c.isalpha()])
 
 class mpgepmcusersSignupForm(forms.ModelForm):
     """
@@ -44,7 +38,7 @@ class mpgepmcusersSignupForm(forms.ModelForm):
         }
         labels = {
             'first_name': 'First Name',
-            'middle_name': 'Middle Name',
+            'middle_name': 'Middle Name (Optional)', # Updated label
             'last_name': 'Last Name',
             'mobile_number': 'Mobile Number',
         }
@@ -52,47 +46,47 @@ class mpgepmcusersSignupForm(forms.ModelForm):
     # Custom Field Validation (using ModelForm's clean_<field> methods)
     def clean_first_name(self):
         name = self.cleaned_data.get('first_name')
-        letter_count = count_letters(name)
-        if not (1 <= letter_count <= 64):
-            raise forms.ValidationError("First Name must contain between 1 and 64 letters (spaces are ignored in count).")
+        # Use the new comprehensive validator
+        mpgepmcusers_validate_name_format_and_length(name, 'First Name')
         return name
 
-    # FIXED: Middle Name is optional, only validate length if provided
+    # Middle Name is optional, only validate length/format if provided
     def clean_middle_name(self):
         name = self.cleaned_data.get('middle_name')
         if name: # Only validate if a value is present
-            letter_count = count_letters(name)
-            if not (1 <= letter_count <= 64):
-                 raise forms.ValidationError("Middle Name must contain between 1 and 64 letters (spaces are ignored in count).")
+            # Use the new comprehensive validator
+            mpgepmcusers_validate_name_format_and_length(name, 'Middle Name')
         # If blank, it passes silently, fulfilling the optional requirement.
         return name
 
     def clean_last_name(self):
         name = self.cleaned_data.get('last_name')
-        letter_count = count_letters(name)
-        if not (1 <= letter_count <= 64):
-            raise forms.ValidationError("Last Name must contain between 1 and 64 letters (spaces are ignored in count).")
+        # Use the new comprehensive validator
+        mpgepmcusers_validate_name_format_and_length(name, 'Last Name')
         return name
 
     def clean_date_of_birth(self):
         dob = self.cleaned_data.get('date_of_birth')
-        mpgepmcusers_validate_birth_date(dob)
+        if dob:
+            mpgepmcusers_validate_birth_date(dob)
         return dob
 
     def clean_email(self):
         email = self.cleaned_data.get('email')
-        mpgepmcusers_validate_email_domain(email)
-        # Check uniqueness (handled by ModelForm, but added for clarity)
-        if mpgepmcusersUser.objects.filter(email=email).exists():
-            raise forms.ValidationError("This email is already registered.")
+        if email:
+            mpgepmcusers_validate_email_domain(email)
+            # Check uniqueness 
+            if mpgepmcusersUser.objects.filter(email=email).exists():
+                raise forms.ValidationError("This email is already registered.")
         return email
 
     def clean_mobile_number(self):
         mobile = self.cleaned_data.get('mobile_number')
-        mpgepmcusers_validate_mobile_number(mobile)
-        # Check uniqueness (handled by ModelForm, but added for clarity)
-        if mpgepmcusersUser.objects.filter(mobile_number=mobile).exists():
-            raise forms.ValidationError("This mobile number is already registered.")
+        if mobile:
+            mpgepmcusers_validate_mobile_number(mobile)
+            # Check uniqueness
+            if mpgepmcusersUser.objects.filter(mobile_number=mobile).exists():
+                raise forms.ValidationError("This mobile number is already registered.")
         return mobile
 
     def clean(self):
