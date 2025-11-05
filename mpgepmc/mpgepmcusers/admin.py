@@ -1,6 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
-from mpgepmcusers.models import mpgepmcusersUser, mpgepmcusersOTP
+# Import the new model
+from mpgepmcusers.models import mpgepmcusersUser, mpgepmcusersOTP, MobileValidationRule
 
 # Custom Admin for mpgepmcusersUser
 class mpgepmcusersUserAdmin(UserAdmin):
@@ -32,6 +33,21 @@ class mpgepmcusersOTPAdmin(admin.ModelAdmin):
     list_display = ('user', 'otp_code', 'created_at', 'expires_at', 'is_expired')
     search_fields = ('user__email',)
     list_filter = ('expires_at',)
+
+# --- NEW ADMIN FOR DYNAMIC MOBILE VALIDATION RULES ---
+@admin.register(MobileValidationRule)
+class MobileValidationRuleAdmin(admin.ModelAdmin):
+    """
+    Admin interface for the MobileValidationRule model.
+    """
+    list_display = ('country_code', 'user_number_length', 'example_format')
+    search_fields = ('country_code',)
+    list_filter = ('country_code',)
+    # Order the fields on the add/change form for clarity
+    fieldsets = (
+        (None, {'fields': ('country_code', 'operator_codes', 'user_number_length', 'example_format')}),
+    )
+
 
 # Register the custom User model with the custom admin
 admin.site.register(mpgepmcusersUser, mpgepmcusersUserAdmin)

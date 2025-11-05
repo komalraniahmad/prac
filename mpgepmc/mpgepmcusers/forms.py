@@ -18,6 +18,10 @@ CUSTOM_GENDER_OPTIONS = (
     ('Prefer-not-to-say', 'Prefer not to say'),
 )
 
+# FIX: Add an empty choice to GENDER_CHOICES for the form to ensure no default selection
+FORM_GENDER_CHOICES = (('', '--- Select your gender ---'),) + tuple(GENDER_CHOICES)
+
+
 class mpgepmcusersSignupForm(forms.ModelForm):
     """
     Form for user registration, including password confirmation and 
@@ -48,6 +52,14 @@ class mpgepmcusersSignupForm(forms.ModelForm):
             'placeholder': 'Please select a specified gender'
         })
     )
+    
+    # FIX: Override the gender field to use the FORM_GENDER_CHOICES with the empty option
+    gender = forms.ChoiceField(
+        choices=FORM_GENDER_CHOICES,
+        required=True, # Explicitly required
+        label='Gender',
+    )
+
 
     class Meta:
         model = mpgepmcusersUser
@@ -105,9 +117,12 @@ class mpgepmcusersSignupForm(forms.ModelForm):
         gender = self.cleaned_data.get('gender')
         custom_gender = self.cleaned_data.get('custom_gender') # This is the selected option value
         
-        # Only perform conditional validation if gender is available in cleaned_data
+        # FIX: BaseUserManager.create_user handles the case where required fields are missing 
+        # but the ChoiceField is required=True and will throw an error if no selection is made.
         if not gender:
-            return gender
+            # This case should be caught by the standard required=True check on the ChoiceField,
+            # but is kept here for robustness, although it's redundant now.
+            raise forms.ValidationError("You must select a gender.")
 
         if gender == OTHER: # 'O' for Other
             # 1. Check required value (non-empty choice)
@@ -180,6 +195,9 @@ class mpgepmcusersSignupForm(forms.ModelForm):
         if user.gender == OTHER:
             # The value is now one of the CUSTOM_GENDER_OPTIONS keys
             user.custom_gender = self.cleaned_data.get('custom_gender')
+        else:
+            # Ensure custom_gender is cleared if a standard gender is selected
+            user.custom_gender = None
             
         if commit:
             user.save()

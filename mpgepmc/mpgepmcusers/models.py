@@ -66,10 +66,11 @@ class mpgepmcusersUser(AbstractBaseUser, PermissionsMixin):
     last_name = models.CharField(max_length=64)
     
     # Gender field using the defined constants and choices
+    # FIX: Removed default=MALE so no gender is selected by default.
     gender = models.CharField(
         max_length=1, 
         choices=GENDER_CHOICES,
-        default=MALE # Added a default for completeness, though signup form overrides
+        # default=MALE # Removed to enforce user selection
     )
     
     # NEW FIELD: Field to store the custom gender text if 'Other' is selected.
@@ -136,3 +137,36 @@ class mpgepmcusersOTP(models.Model):
 
     def __str__(self):
         return f"OTP for {self.user.email}"
+
+# --- NEW MODEL FOR DYNAMIC MOBILE VALIDATION RULES ---
+class MobileValidationRule(models.Model):
+    """
+    Stores country-specific mobile number validation rules.
+    """
+    # E.g., +92, +1, +91
+    country_code = models.CharField(
+        max_length=5, 
+        unique=True, 
+        verbose_name='Country Code (e.g., +92)'
+    )
+    # Comma-separated list of allowed operator/area code prefixes. E.g., 300-355 for Pakistan.
+    # The validator will convert this into a regex group.
+    operator_codes = models.TextField(
+        verbose_name='Allowed Operator Codes (Provide as Regex Segment)'
+    )
+    # The required length of the user's number part, following the operator code. E.g., 7 for Pakistan.
+    user_number_length = models.PositiveSmallIntegerField(
+        verbose_name='User Number Length (digits)'
+    )
+    # Example format to show the user/admin
+    example_format = models.CharField(
+        max_length=64,
+        verbose_name='Example Format (e.g., +923XXYYYYYYY)'
+    )
+
+    class Meta:
+        verbose_name = 'Mobile Validation Rule'
+        verbose_name_plural = 'Mobile Validation Rules'
+
+    def __str__(self):
+        return f"Rule for {self.country_code}"
