@@ -147,7 +147,7 @@ def mpgepmcusers_resend_otp(request):
     try:
         user = mpgepmcusersUser.objects.get(email=email)
         
-        # Prevent spamming: Check if an OTP was recently generated (e.g., in the last 60 seconds)
+        # Prevent spamming: Check if an OTP was recently generated (e.g., in the in the last 60 seconds)
         try:
             last_otp = mpgepmcusersOTP.objects.get(user=user)
             # Assuming get_otp_resend_throttle() is a method on the User model
@@ -220,24 +220,22 @@ def mpgepmcusers_ajax_validate(request):
                 is_valid = False
                 error_message = 'Invalid gender selected.'
             elif value == OTHER: # 'O' for Other
-                # If 'Other' is selected, custom_gender text MUST be provided
+                # If 'Other' is selected, custom_gender value MUST be provided
                 if not custom_gender_value:
                     is_valid = False
                     error_message = 'You must specify your gender in the text box.'
-                # FIX: REMOVED redundant mpgepmcusers_validate_name_format_and_length check.
-                # If custom_gender_value is present, the gender field is valid. The format
-                # check is handled when 'custom_gender' is the field being validated.
+                # The final form validation in forms.py handles the core submission error.
         
-        # --- Custom Gender Text Field Validation ---
+        # --- Custom Gender Field Validation (ChoiceField) ---
         elif field_name == 'custom_gender':
             # Only validate if the user's selected gender is 'Other'
             if gender_field_value == OTHER:
                 if not value:
                     is_valid = False
-                    error_message = 'You must specify your gender in the text box when Other is selected.'
+                    error_message = 'You must select an option from the dropdown when Other is selected.'
                 else:
-                    # Validate the format of the custom gender text
-                    mpgepmcusers_validate_name_format_and_length(value, 'Custom Gender')
+                    # The value comes from a controlled dropdown (ChoiceField) which is inherently valid.
+                    pass 
             # If gender is not 'Other', or if it's not provided, custom_gender is valid.
             elif gender_field_value and gender_field_value != OTHER:
                 is_valid = True

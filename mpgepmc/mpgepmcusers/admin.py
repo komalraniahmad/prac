@@ -8,8 +8,20 @@ class mpgepmcusersUserAdmin(UserAdmin):
     """
     Custom admin interface for the mpgepmcusersUser model.
     """
-    # The fields to be used in displaying the User model.
-    list_display = ('email', 'first_name', 'last_name', 'is_active', 'is_staff', 'is_superuser')
+    # UPDATED list_display to show all relevant signup fields
+    list_display = (
+        'email', 
+        'first_name', 
+        'middle_name', 
+        'last_name', 
+        'gender', 
+        'custom_gender', 
+        'date_of_birth', 
+        'mobile_number', 
+        'is_active', 
+        'is_staff', 
+        'is_superuser'
+    )
     search_fields = ('email', 'first_name', 'last_name')
     ordering = ('email',)
     filter_horizontal = ()
@@ -17,7 +29,7 @@ class mpgepmcusersUserAdmin(UserAdmin):
     # Custom fieldsets for the admin change form
     fieldsets = (
         (None, {'fields': ('email', 'password')}),
-        ('Personal info', {'fields': ('first_name', 'middle_name', 'last_name', 'gender', 'date_of_birth', 'mobile_number')}),
+        ('Personal info', {'fields': ('first_name', 'middle_name', 'last_name', 'gender', 'custom_gender', 'date_of_birth', 'mobile_number')}),
         ('Permissions', {'fields': ('is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions')}),
         ('Important dates', {'fields': ('last_login', 'date_joined')}),
     )

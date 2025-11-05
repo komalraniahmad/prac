@@ -112,35 +112,14 @@ class mpgepmcusersSignupForm(forms.ModelForm):
         mpgepmcusers_validate_name_format_and_length(name, 'Last Name')
         return name
 
-    # UPDATED: Clean method for gender and custom_gender
+    # UPDATED: Clean method for gender - simplified to only check for selection
     def clean_gender(self):
         gender = self.cleaned_data.get('gender')
-        custom_gender = self.cleaned_data.get('custom_gender') # This is the selected option value
         
-        # FIX: BaseUserManager.create_user handles the case where required fields are missing 
-        # but the ChoiceField is required=True and will throw an error if no selection is made.
         if not gender:
-            # This case should be caught by the standard required=True check on the ChoiceField,
-            # but is kept here for robustness, although it's redundant now.
             raise forms.ValidationError("You must select a gender.")
-
-        if gender == OTHER: # 'O' for Other
-            # 1. Check required value (non-empty choice)
-            if not custom_gender or custom_gender.strip() == '':
-                # FIX: Add an error to the 'gender' field itself to show it's conditionally invalid
-                self.add_error('gender', "Specification required when 'Other' is selected.")
-                self.add_error('custom_gender', "You must select an option from the dropdown when 'Other' is selected.")
-            elif custom_gender == 'Other-Typed':
-                # If the user selects the "Other (Specify using Custom Text box)" option,
-                # you would need an actual text field on the form (not currently implemented)
-                # to allow typing, and validation on that text field.
-                # For now, we will allow this to pass as valid if selected.
-                pass
-            else:
-                # 2. If a non-empty, non-Custom-Text value is selected, it's inherently valid
-                # because it came from the controlled dropdown choices.
-                pass
-                
+            
+        # FIX: Removed conditional logic for custom_gender. Moved to global clean method.
         return gender
         
     def clean_date_of_birth(self):
@@ -172,14 +151,21 @@ class mpgepmcusersSignupForm(forms.ModelForm):
 
     def clean(self):
         """
-        Global form validation, primarily for password matching.
+        Global form validation, primarily for password matching and cross-field dependencies.
         """
         cleaned_data = super().clean()
         password = cleaned_data.get("password")
         password_confirm = cleaned_data.get("password_confirm")
+        gender = cleaned_data.get('gender')
+        custom_gender = cleaned_data.get('custom_gender') # Check conditional value here
 
         if password and password_confirm and password != password_confirm:
             self.add_error('password_confirm', "Passwords do not match.")
+        
+        # FIX: Conditional Gender Specification Check moved to the global clean method
+        if gender == OTHER and (not custom_gender or custom_gender.strip() == ''):
+            # This is the check that was previously causing issues in clean_gender when it shouldn't
+            self.add_error('custom_gender', "You must select an option from the dropdown when 'Other' is selected.")
 
         return cleaned_data
 
