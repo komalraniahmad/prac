@@ -6,8 +6,7 @@ from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse, HttpResponseBadRequest
 from django.views.decorators.http import require_POST
 from django.db import IntegrityError
-from django.utils import timezone # ADDED: Required for resend OTP logic
-# 💡 FIX: Import ValidationError explicitly
+from django.utils import timezone 
 from django.core.exceptions import ValidationError 
 
 from mpgepmcusers.forms import mpgepmcusersSignupForm, mpgepmcusersSignInForm
@@ -16,7 +15,7 @@ from mpgepmcusers.utils import mpgepmcusers_generate_otp, mpgepmcusers_send_otp_
 from mpgepmcusers.validators import (
     mpgepmcusers_validate_birth_date, mpgepmcusers_validate_email_domain,
     mpgepmcusers_validate_mobile_number, mpgepmcusers_validate_password_complexity,
-    mpgepmcusers_validate_name_format_and_length # Existing new import
+    mpgepmcusers_validate_name_format_and_length 
 )
 from mpgepmcusers.decorators import mpgepmcusers_unauthenticated_user
 from datetime import datetime
@@ -194,7 +193,12 @@ def mpgepmcusers_ajax_validate(request):
     # --- Initial Required Field Check ---
     # middle_name is optional, all others passed in must have a value
     if not value and field_name not in ['middle_name']:
-        return HttpResponseBadRequest(json.dumps({'is_valid': False, 'error': 'Missing required field value.'}))
+        # Exception: For 'custom_gender', we only check required status if gender is 'OTHER'
+        if field_name == 'custom_gender' and gender_field_value == OTHER:
+            # Fall through to specific validation
+            pass 
+        else:
+            return HttpResponseBadRequest(json.dumps({'is_valid': False, 'error': 'Missing required field value.'}))
     
     # If middle_name is empty, it's valid, so we can exit early.
     if field_name == 'middle_name' and not value:
@@ -220,9 +224,9 @@ def mpgepmcusers_ajax_validate(request):
                 if not custom_gender_value:
                     is_valid = False
                     error_message = 'You must specify your gender in the text box.'
-                else:
-                    # Validate the format of the custom gender text if provided
-                    mpgepmcusers_validate_name_format_and_length(custom_gender_value, 'Custom Gender')
+                # FIX: REMOVED redundant mpgepmcusers_validate_name_format_and_length check.
+                # If custom_gender_value is present, the gender field is valid. The format
+                # check is handled when 'custom_gender' is the field being validated.
         
         # --- Custom Gender Text Field Validation ---
         elif field_name == 'custom_gender':
@@ -234,7 +238,13 @@ def mpgepmcusers_ajax_validate(request):
                 else:
                     # Validate the format of the custom gender text
                     mpgepmcusers_validate_name_format_and_length(value, 'Custom Gender')
-            # If gender is not 'Other', no validation is needed, it's considered valid.
+            # If gender is not 'Other', or if it's not provided, custom_gender is valid.
+            elif gender_field_value and gender_field_value != OTHER:
+                is_valid = True
+                error_message = ''
+            else:
+                 is_valid = True
+                 error_message = ''
         
         # --- Date of Birth Validation ---
         elif field_name == 'date_of_birth':
@@ -265,13 +275,12 @@ def mpgepmcusers_ajax_validate(request):
             
     except Exception as e:
         is_valid = False
-        error_message = '' # Initialize error_message
+        error_message = '' 
         
-        # --- Consolidated Exception Handling (FINAL FIX) ---
+        # --- Consolidated Exception Handling ---
         
         # 1. Handle Django's ValidationError explicitly
         if isinstance(e, ValidationError):
-            # Key fix: Iterate over the ValidationError messages to force resolution of lazy strings and params
             try:
                 error_messages = [str(msg) for msg in e] 
                 error_message = ' '.join(error_messages)

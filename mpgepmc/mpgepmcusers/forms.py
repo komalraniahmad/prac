@@ -10,6 +10,14 @@ from mpgepmcusers.validators import (
     mpgepmcusers_validate_name_format_and_length
 )
 
+# --- NEW CHOICES FOR THE CUSTOM GENDER DROPDOWN ---
+CUSTOM_GENDER_OPTIONS = (
+    ('', '--- Select a specified gender ---'),
+    ('Non-binary', 'Non-binary'),
+    ('Transgender', 'Transgender'),
+    ('Prefer-not-to-say', 'Prefer not to say'),
+)
+
 class mpgepmcusersSignupForm(forms.ModelForm):
     """
     Form for user registration, including password confirmation and 
@@ -30,12 +38,15 @@ class mpgepmcusersSignupForm(forms.ModelForm):
         max_length=52,
     )
 
-    # NEW FIELD: custom_gender text input (used when 'gender' is 'OTHER')
-    custom_gender = forms.CharField(
-        required=False, # Required status is handled in clean_gender based on 'gender' value
-        max_length=64,
-        label='Specify Gender',
-        widget=forms.TextInput(attrs={'placeholder': 'Please specify your gender'})
+    # UPDATED FIELD: custom_gender is now a ChoiceField (Dropdown)
+    custom_gender = forms.ChoiceField(
+        choices=CUSTOM_GENDER_OPTIONS,
+        required=False,
+        label='Specify Gender (Dropdown)',
+        widget=forms.Select(attrs={
+            'id': 'id_custom_gender', 
+            'placeholder': 'Please select a specified gender'
+        })
     )
 
     class Meta:
@@ -92,27 +103,28 @@ class mpgepmcusersSignupForm(forms.ModelForm):
     # UPDATED: Clean method for gender and custom_gender
     def clean_gender(self):
         gender = self.cleaned_data.get('gender')
-        custom_gender = self.cleaned_data.get('custom_gender')
+        custom_gender = self.cleaned_data.get('custom_gender') # This is the selected option value
+        
+        # Only perform conditional validation if gender is available in cleaned_data
+        if not gender:
+            return gender
 
         if gender == OTHER: # 'O' for Other
-            # 1. Check required value
+            # 1. Check required value (non-empty choice)
             if not custom_gender or custom_gender.strip() == '':
-                raise forms.ValidationError("You must specify your gender in the text box when 'Other' is selected.")
-            
-            # 2. Validate format of custom_gender
-            try:
-                # Use the existing name validator for the custom gender text
-                mpgepmcusers_validate_name_format_and_length(custom_gender, 'Custom Gender')
-            except Exception as e:
-                # Re-raise with a specific error message
-                error_message = str(e)
-                # Clean up potential Django ValidationError list wrapper if needed
-                if error_message.startswith("['") and error_message.endswith("']"):
-                    error_message = error_message[2:-2]
-                elif error_message.startswith("[") and error_message.endswith("]"):
-                    error_message = error_message[1:-1]
-
-                raise forms.ValidationError(f"Invalid custom gender format: {error_message}")
+                # FIX: Add an error to the 'gender' field itself to show it's conditionally invalid
+                self.add_error('gender', "Specification required when 'Other' is selected.")
+                self.add_error('custom_gender', "You must select an option from the dropdown when 'Other' is selected.")
+            elif custom_gender == 'Other-Typed':
+                # If the user selects the "Other (Specify using Custom Text box)" option,
+                # you would need an actual text field on the form (not currently implemented)
+                # to allow typing, and validation on that text field.
+                # For now, we will allow this to pass as valid if selected.
+                pass
+            else:
+                # 2. If a non-empty, non-Custom-Text value is selected, it's inherently valid
+                # because it came from the controlled dropdown choices.
+                pass
                 
         return gender
         
@@ -165,6 +177,7 @@ class mpgepmcusersSignupForm(forms.ModelForm):
         
         # If the user selected 'Other' gender, set the custom_gender on the model instance
         if user.gender == OTHER:
+            # The value is now one of the CUSTOM_GENDER_OPTIONS keys
             user.custom_gender = self.cleaned_data.get('custom_gender')
             
         if commit:

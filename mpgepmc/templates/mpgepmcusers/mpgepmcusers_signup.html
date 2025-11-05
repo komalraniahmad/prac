@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial_scale=1.0">
     <title>mpgepmc - User Registration</title>
     <style>
         /* CSS from snippet 2 */
@@ -133,8 +133,8 @@
         const submitBtn = document.getElementById('submit-btn');
         const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
         
-        // Use all fields that need AJAX validation for *some* reason
-        const ajaxFields = ['first_name', 'middle_name', 'last_name', 'gender', 'custom_gender', 'date_of_birth', 'email', 'mobile_number', 'password'];
+        // Removed 'custom_gender' from the generic list for special handling later
+        const ajaxFields = ['first_name', 'middle_name', 'last_name', 'gender', 'date_of_birth', 'email', 'mobile_number', 'password'];
         
         // Fields that must be filled for the form to submit
         const requiredFields = ['first_name', 'last_name', 'gender', 'date_of_birth', 'email', 'mobile_number', 'password', 'password_confirm'];
@@ -161,15 +161,12 @@
             
             if (genderSelect.value === OTHER_GENDER_CODE) {
                 customGenderGroup.style.display = 'block';
-                // Note: Removing the HTML required attribute and relying on JS/Server validation is safer
-                // customGenderInput.setAttribute('required', 'required'); 
                 
                 // If the input is now visible, its validation status must be re-evaluated
                 validationStatus['custom_gender'] = customGenderInput.value.trim() !== ''; 
                 
             } else {
                 customGenderGroup.style.display = 'none';
-                // customGenderInput.removeAttribute('required');
                 customGenderInput.value = ''; // Clear value when hidden
                 
                 // Manually mark as valid if not 'Other'
@@ -204,9 +201,9 @@
                 return;
             }
             
-            // --- Custom Data Payload for Contextual Validation (FIXED) ---
+            // --- Custom Data Payload for Contextual Validation ---
             const data = {
-                'field': fieldName, // Note: Server expects 'field' from the first snippet
+                'field': fieldName, 
                 'value': value,
             };
 
@@ -217,15 +214,15 @@
                 // When 'gender' changes, send 'custom_gender' value for server-side check
                 data['custom_gender'] = document.getElementById('id_custom_gender').value;
             } else if (fieldName === 'custom_gender') {
-                 // When 'custom_gender' is typed, send 'gender' value for server-side check
-                 data['gender'] = genderSelect.value;
-                 
-                 // If 'Other' is not selected, skip validation entirely (should be caught by visibility check, but this is a final guard)
-                 if (genderSelect.value !== OTHER_GENDER_CODE) {
-                     validationStatus['custom_gender'] = true;
-                     checkFormValidity();
-                     return;
-                 }
+                   // When 'custom_gender' is typed, send 'gender' value for server-side check
+                   data['gender'] = genderSelect.value;
+                   
+                   // If 'Other' is not selected, skip validation entirely
+                   if (genderSelect.value !== OTHER_GENDER_CODE) {
+                       validationStatus['custom_gender'] = true;
+                       checkFormValidity();
+                       return;
+                   }
             }
             // --- END Custom Data Payload ---
             
@@ -335,15 +332,13 @@
 
         // --- Event Listeners (FIXED AND CONSOLIDATED) ---
         
-        // Live AJAX validation for complex/server checks
+        // Live AJAX validation for complex/server checks (Excludes custom_gender)
         ajaxFields.forEach(fieldName => {
             const input = document.getElementById(`id_${fieldName}`);
             if (input) {
                 let eventType = 'blur'; 
                 if (fieldName === 'date_of_birth' || fieldName === 'gender') {
                      eventType = 'change'; // Select boxes and dates use change
-                } else if (fieldName === 'custom_gender') {
-                     eventType = 'input'; // Text input should validate on input/keyup, use input
                 }
                 
                 input.addEventListener(eventType, () => {
@@ -371,6 +366,23 @@
             runAjaxValidation('custom_gender', document.getElementById('id_custom_gender').value);
             checkFormValidity();
         });
+        
+        // 👇👇👇 NEW LOGIC: VALIDATE GENDER WHEN CUSTOM GENDER IS TYPED 👇👇👇
+        document.getElementById('id_custom_gender').addEventListener('input', (e) => {
+            const customGenderValue = e.target.value;
+            const genderValue = document.getElementById('id_gender').value;
+            
+            // 1. Run validation for the custom_gender field itself
+            runAjaxValidation('custom_gender', customGenderValue);
+            
+            // 2. Force re-run validation for the main gender field.
+            //    This is crucial because the 'gender' field's validity depends on 
+            //    'custom_gender' being filled when 'Other' is selected.
+            if (genderValue === OTHER_GENDER_CODE) {
+                runAjaxValidation('gender', genderValue);
+            }
+        });
+        // 👆👆👆 END NEW LOGIC 👆👆👆
 
         // Specifically watch middle_name input to disable form if something is typed, forcing an AJAX check on blur
         document.getElementById('id_middle_name').addEventListener('input', (e) => {
