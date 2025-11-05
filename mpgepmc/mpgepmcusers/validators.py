@@ -8,11 +8,42 @@ MIN_AGE = 12
 MAX_AGE = 150
 ALLOWED_DOMAINS = ['gmail.com', 'yahoo.com', 'mpgepmc.com']
 PASSWORD_REGEX = r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*#?&])[A-Za-z\d@$!%*#?&]{8,52}$"
-MOBILE_REGEX = r"^\+?1?\d{9,15}$" # Basic international phone number format (9 to 15 digits)
-# UPDATED CONSTANT: Basic Email Format Regex (checks for username@domain.tld structure)
+
+# NEW CONSTANT: Dynamic Mobile Number Rules
+# Key: Country Code (string)
+# Value: Dictionary with 'operator_regex' (string) and 'user_length' (int)
+# Note: The operator regex should NOT include the country code.
+MOBILE_RULES = {
+    # Pakistan (+92)
+    '+92': {
+        # Operator Codes: 300-355. User Number Length: 7 digits.
+        'operator_regex': r'3(?:[0-5][0-9]|5[0-5])', 
+        'user_length': 7, 
+        'example': '+923XXYYYYYYY (7 digits)'
+    },
+    # USA/Canada (+1) - Using common 3-digit area code, then 7 digits (Total 10 after +1)
+    '+1': {
+        # Operator (Area) Codes: 200-999 (excluding some reserved ranges for simplicity). User Number Length: 7 digits.
+        'operator_regex': r'[2-9]\d{2}', 
+        'user_length': 7, 
+        'example': '+1AAAXXXXXXX (10 digits)'
+    },
+    # India (+91)
+    '+91': {
+        # Operator Codes: 6, 7, 8, or 9 followed by 9 digits. User Number Length: 9 digits.
+        'operator_regex': r'[6-9]\d', 
+        'user_length': 8, # 10 digits total (2 for operator + 8 for user number)
+        'example': '+91XXYYYYYYYYYY (10 digits)'
+    },
+}
+
+# Calculated Constant: Allowed Country Codes for quicker reference
+ALLOWED_COUNTRY_CODES = list(MOBILE_RULES.keys())
+
+# Basic Email Format Regex (checks for username@domain.tld structure)
 EMAIL_FORMAT_REGEX = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
 
-# NEW CONSTANT: Strict Name Validation Regex (A-Z, a-z, ., space, -, _)
+# Strict Name Validation Regex (A-Z, a-z, ., space, -, _)
 NAME_REGEX = r"^[A-Za-z\s\-\._]+$"
 MIN_NAME_LETTERS = 1
 MAX_NAME_LETTERS = 64
@@ -25,29 +56,23 @@ def mpgepmcusers_validate_name_format_and_length(value, field_name):
     and ensures the letter count is between 1 and 64 (ignoring non-letter characters in the count).
     """
     if not value:
-        # This case is primarily handled by the form's required=True/False, but acts as a safeguard
         raise ValidationError(_('This field is required.'), code='required')
 
-    # 1. Check for invalid characters using the strict regex
     if not re.fullmatch(NAME_REGEX, value):
-        # FIXED: Pass params to ValidationError
         raise ValidationError(
             _('%(field_name)s contains invalid characters. Only letters, spaces, periods (.), hyphens (-), and underscores (_) are allowed.'),
             params={'field_name': field_name},
             code='invalid_name_format'
         )
 
-    # 2. Check letter count (only letters count for min/max check)
     letter_count = sum(1 for char in value if char.isalpha())
     if letter_count < MIN_NAME_LETTERS:
-        # FIXED: Pass params to ValidationError
         raise ValidationError(
             _('%(field_name)s must contain at least %(min)s letters (non-letter characters are ignored).'),
             params={'field_name': field_name, 'min': MIN_NAME_LETTERS},
             code='name_too_short'
         )
     if letter_count > MAX_NAME_LETTERS:
-        # FIXED: Pass params to ValidationError
         raise ValidationError(
             _('%(field_name)s cannot contain more than %(max)s letters (non-letter characters are ignored).'),
             params={'field_name': field_name, 'max': MAX_NAME_LETTERS},
@@ -63,37 +88,32 @@ def mpgepmcusers_validate_birth_date(value):
     age = today.year - value.year - ((today.month, today.day) < (value.month, value.day))
 
     if age < MIN_AGE:
-        # FIXED: Pass params to ValidationError
         raise ValidationError(
             _('you are under age %(min_age)s yrs'),
             params={'min_age': MIN_AGE},
             code='too_young'
         )
     if age > MAX_AGE:
-        # FIXED: Pass params to ValidationError
         raise ValidationError(
             _('you are over age %(max_age)s yrs'),
             params={'max_age': MAX_AGE},
             code='too_old'
         )
 
-def mpgepmcusers_validate_email(value): # RENAMED & MODIFIED
+def mpgepmcusers_validate_email(value): 
     """
     Validates if the email has a basic valid format (username@domain) and 
     belongs to one of the allowed domains.
     """
-    # 1. Check for basic email format (relies on Django's EmailField, but as a safeguard)
     if not re.fullmatch(EMAIL_FORMAT_REGEX, value):
         raise ValidationError(
             _('Enter a valid email address with a username and domain.'),
             code='invalid_email_format'
         )
 
-    # 2. Check for allowed domain
     domain = value.split('@')[-1].lower()
     allowed_domains_str = ', '.join(ALLOWED_DOMAINS)
     if domain not in ALLOWED_DOMAINS:
-        # FIXED: Pass params to ValidationError
         raise ValidationError(
             _('Invalid email domain. Must be one of: %(domains)s.'),
             params={'domains': allowed_domains_str},
@@ -112,10 +132,35 @@ def mpgepmcusers_validate_password_complexity(value):
 
 def mpgepmcusers_validate_mobile_number(value):
     """
-    Validates the mobile number format.
+    Validates the mobile number against country-specific rules for operator code and user number length.
     """
-    if not re.fullmatch(MOBILE_REGEX, value):
+    # 1. Check for valid country code prefix
+    country_code = next((cc for cc in ALLOWED_COUNTRY_CODES if value.startswith(cc)), None)
+
+    if not country_code:
+        # If no supported country code is found
+        allowed_codes_str = ', '.join(ALLOWED_COUNTRY_CODES)
         raise ValidationError(
-            _('Enter a valid mobile number.'),
-            code='invalid_mobile_number'
+            _('Mobile number must start with a valid country code: %(codes)s.'),
+            params={'codes': allowed_codes_str},
+            code='invalid_country_code'
+        )
+
+    # 2. Extract country-specific rules
+    rules = MOBILE_RULES[country_code]
+    operator_regex = rules['operator_regex']
+    user_length = rules['user_length']
+    example = rules['example']
+    
+    # 3. Construct the dynamic regex pattern
+    # Pattern: ^(Country Code)(Operator Regex)(\d{User Length})$
+    dynamic_regex = rf"^{re.escape(country_code)}({operator_regex})(\d{{{user_length}}})$"
+    
+    # 4. Perform the final validation
+    if not re.fullmatch(dynamic_regex, value):
+        # Specific error message tailored to the country's rules
+        raise ValidationError(
+            _('Invalid mobile number format for %(country_code)s. Expected format (example: %(example)s) with valid operator code and %(length)s user digits.'),
+            params={'country_code': country_code, 'length': user_length, 'example': example},
+            code='invalid_mobile_number_format'
         )
