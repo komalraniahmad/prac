@@ -26,11 +26,24 @@
             padding: 5px; transition: color 0.3s;
         }
         .btn-resend:hover { color: #34495e; }
+        /* Style for disabled resend button */
+        .btn-resend:disabled { 
+            color: #ccc; 
+            cursor: not-allowed; 
+            text-decoration: none;
+        }
         .messages { list-style: none; padding: 0; margin-bottom: 20px; }
         .messages li { padding: 10px; border-radius: 6px; margin-bottom: 10px; font-weight: bold; }
         .alert-error { background-color: #f2dede; color: #a94442; border: 1px solid #ebccd1; }
         .alert-success { background-color: #dff0d8; color: #3c763d; border: 1px solid #d6e9c6; }
         .alert-warning { background-color: #fcf8e3; color: #8a6d3b; border: 1px solid #faebcc; }
+        /* NEW STYLE for the countdown timer */
+        #countdown-timer { 
+            font-weight: bold; 
+            color: #e74c3c; 
+            margin-bottom: 15px; 
+            display: block;
+        }
     </style>
 </head>
 <body>
@@ -47,22 +60,102 @@
 
         <p>A verification code has been sent to <strong>{{ email }}</strong>. Please enter the 6-digit code below. The code is valid for 30 minutes.</p>
 
+        <span id="countdown-timer"></span>
+        
         <form method="post">
             {% csrf_token %}
-            <input type="text" name="otp_code" maxlength="6" required placeholder="Enter OTP Code" pattern="\d{6}">
-            <button type="submit" class="btn-verify">Verify Account</button>
+            <input type="text" name="otp_code" id="otp-input" maxlength="6" required placeholder="Enter OTP Code" pattern="\d{6}" {% if not is_otp_valid %}disabled{% endif %}>
+            <button type="submit" class="btn-verify" id="verify-btn" {% if not is_otp_valid %}disabled{% endif %}>Verify Account</button>
         </form>
 
-        <button type="button" id="resend-btn" class="btn-resend">Resend OTP to Email</button>
+        <button type="button" id="resend-btn" class="btn-resend" data-expires-at="{{ expires_at_timestamp }}" disabled>Resend OTP to Email</button>
     </div>
 
     <script>
         const resendBtn = document.getElementById('resend-btn');
+        const otpInput = document.getElementById('otp-input');
+        const verifyBtn = document.getElementById('verify-btn');
+        const countdownTimer = document.getElementById('countdown-timer');
         const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+        // Convert server timestamp (milliseconds) to a Number
+        let expiresAtTimestamp = Number(resendBtn.getAttribute('data-expires-at')); 
+        let countdownInterval;
+
+        /**
+         * Converts milliseconds to MM:SS format.
+         * @param {number} ms - Milliseconds remaining.
+         * @returns {string} - Formatted time string.
+         */
+        function msToTime(ms) {
+            const seconds = Math.floor((ms / 1000) % 60);
+            const minutes = Math.floor((ms / (1000 * 60)) % 60);
+            
+            const minutesStr = minutes.toString().padStart(2, '0');
+            const secondsStr = seconds.toString().padStart(2, '0');
+            
+            return `${minutesStr}:${secondsStr}`;
+        }
+        
+        /**
+         * Updates the countdown display and button/input state.
+         */
+        function updateCountdown() {
+            const now = new Date().getTime();
+            const distance = expiresAtTimestamp - now;
+
+            // Check if input/verify button are disabled by the backend (3 strikes)
+            const isBackendDisabled = otpInput.disabled;
+
+            if (distance < 0) {
+                // OTP expired
+                clearInterval(countdownInterval);
+                countdownTimer.textContent = 'OTP has expired. Resend is available.';
+                resendBtn.disabled = false;
+                otpInput.disabled = true;
+                verifyBtn.disabled = true;
+            } else {
+                // OTP active (either valid or invalidated)
+                countdownTimer.textContent = `Resend available in: ${msToTime(distance)}`;
+                resendBtn.disabled = true;
+                
+                // Only re-enable the input/verify button if it wasn't explicitly disabled by the backend (3 strikes)
+                if (!isBackendDisabled) {
+                    otpInput.disabled = false;
+                    verifyBtn.disabled = false;
+                } else {
+                    // If backend disabled it (3 strikes), keep it disabled but still show countdown until expiration
+                    countdownTimer.textContent = `OTP Invalidated. Resend available in: ${msToTime(distance)}`;
+                }
+            }
+        }
+
+        /**
+         * Starts the countdown timer.
+         */
+        function startCountdown() {
+            if (countdownInterval) {
+                clearInterval(countdownInterval);
+            }
+
+            if (expiresAtTimestamp) {
+                 // The interval will manage the countdown and button state
+                updateCountdown();
+                countdownInterval = setInterval(updateCountdown, 1000);
+            } else {
+                 // Case where no OTP exists initially (unlikely with views.py fix, but safe)
+                 countdownTimer.textContent = 'No active OTP. Resend available.';
+                 resendBtn.disabled = false;
+                 otpInput.disabled = true;
+                 verifyBtn.disabled = true;
+            }
+        }
+
+        startCountdown(); // Initial call to start the timer
 
         resendBtn.addEventListener('click', async () => {
             resendBtn.disabled = true;
             resendBtn.textContent = 'Sending...';
+            countdownTimer.textContent = 'Sending...';
 
             const url = "{% url 'mpgepmcusers:resend_otp' %}";
 
@@ -73,26 +166,39 @@
                         'X-CSRFToken': csrfToken,
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({}) // Empty body for POST request
+                    body: JSON.stringify({})
                 });
 
                 const data = await response.json();
                 
                 if (data.success) {
-                    alert('Success! ' + data.message); // Using alert here as the view is designed to handle failure gracefully
+                    // Update the expiry time from the successful resend response
+                    expiresAtTimestamp = Number(data.expires_at_timestamp);
+                    resendBtn.setAttribute('data-expires-at', expiresAtTimestamp);
+                    
+                    // On successful resend, the OTP is valid again, so enable the input
+                    otpInput.disabled = false; 
+                    verifyBtn.disabled = false; 
+                    
+                    startCountdown(); 
+                    alert('Success! ' + data.message);
                 } else {
                     alert('Error: ' + data.message);
+                    
+                    // If resend fails because the previous OTP is still active, restart the countdown
+                    if (data.message.includes('still active') && expiresAtTimestamp) {
+                         startCountdown();
+                    } else {
+                         // Some other failure, allow the button to be clicked again if the countdown already finished
+                         resendBtn.disabled = (expiresAtTimestamp > new Date().getTime());
+                         countdownTimer.textContent = '';
+                    }
                 }
 
             } catch (error) {
                 alert('A server error occurred while trying to resend OTP.');
             } finally {
                 resendBtn.textContent = 'Resend OTP to Email';
-                
-                // Implement a short delay to prevent abuse
-                setTimeout(() => {
-                    resendBtn.disabled = false;
-                }, 60000); // Re-enable after 60 seconds (1 minute throttle)
             }
         });
     </script>

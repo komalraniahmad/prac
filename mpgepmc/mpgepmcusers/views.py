@@ -8,6 +8,8 @@ from django.views.decorators.http import require_POST
 from django.db import IntegrityError
 from django.utils import timezone 
 from django.core.exceptions import ValidationError 
+from django.contrib.auth.hashers import check_password
+from datetime import datetime
 
 from mpgepmcusers.forms import mpgepmcusersSignupForm, mpgepmcusersSignInForm
 from mpgepmcusers.models import mpgepmcusersUser, mpgepmcusersOTP, OTHER
@@ -18,7 +20,7 @@ from mpgepmcusers.validators import (
     mpgepmcusers_validate_name_format_and_length 
 )
 from mpgepmcusers.decorators import mpgepmcusers_unauthenticated_user
-from datetime import datetime
+
 # --- Shared Views ---
 
 def mpgepmcusers_index(request):
@@ -35,20 +37,65 @@ def mpgepmcusers_home(request):
 @mpgepmcusers_unauthenticated_user
 def mpgepmcusers_signin(request):
     if request.method == 'POST':
-        form = mpgepmcusersSignInForm(request, data=request.POST)
-        if form.is_valid():
-            user = form.get_user()
-            # Check if user is active (i.e., verified)
-            if user.is_active:
-                login(request, user)
-                return redirect('mpgepmcusers:home')
+        # Need to manually get email and password since we bypass form.is_valid() for custom logic
+        email_input = request.POST.get('username') or request.POST.get('email')
+        password_input = request.POST.get('password')
+        form = mpgepmcusersSignInForm(request, data=request.POST) # Keep for CSRF/rendering
+
+        # --- REQUIREMENT 4: Check if user is registered first ---
+        try:
+            user = mpgepmcusersUser.objects.get(email__iexact=email_input)
+            
+            # --- Check Password Manually ---
+            if check_password(password_input, user.password):
+                # Password is correct
+                
+                # REQUIREMENT 1: Correct email/password, verified
+                if user.is_active:
+                    # Manually log the user in
+                    login(request, user)
+                    return redirect('mpgepmcusers:home')
+                else:
+                    # REQUIREMENT 2: Correct email/password, NOT verified, redirect to OTP verification
+                    
+                    otp_resend_required = True
+                    # Check for an existing, unexpired OTP record
+                    try:
+                        otp_record = user.otp_record
+                        
+                        # ONLY GENERATE A NEW OTP IF THE PREVIOUS ONE HAS EXPIRED.
+                        if otp_record.expires_at > timezone.now(): 
+                            messages.warning(
+                                request, 
+                                'Your account is not verified. Please verify using the OTP sent to your email. You can request a new OTP only after the current one expires.'
+                            )
+                            otp_resend_required = False
+                            
+                    except mpgepmcusersOTP.DoesNotExist:
+                        # No existing OTP record, a new one must be generated.
+                        pass 
+                    
+                    # Only generate and send OTP if resend is required (i.e., no unexpired OTP found)
+                    if otp_resend_required:
+                        otp_code = mpgepmcusers_generate_otp(user) 
+                        mpgepmcusers_send_otp_email(user, otp_code)
+                        messages.success(request, 'Your account is not verified. A new OTP has been sent to your email.')
+
+                    request.session['unverified_email'] = user.email
+                    return redirect('mpgepmcusers:otp_verify')
+                    
             else:
-                # If account is not active, redirect to OTP verification
-                messages.warning(request, 'Your account is not verified. Please verify using the OTP sent to your email.')
-                request.session['unverified_email'] = user.email # Ensure email is set for verification
-                return redirect('mpgepmcusers:otp_verify')
-        else:
-            messages.error(request, 'Invalid email or password.')
+                # REQUIREMENT 3: Correct email, incorrect password
+                messages.error(request, 'Invalid credentials.')
+                
+        except mpgepmcusersUser.DoesNotExist:
+            # REQUIREMENT 4: User is not registered
+            messages.error(request, 'You are not registered yet, kindly signup first and verify then signin')
+            
+        except Exception:
+            # Catch all other exceptions
+            messages.error(request, 'An unexpected error occurred during sign-in.')
+            
     else:
         form = mpgepmcusersSignInForm()
         
@@ -91,7 +138,7 @@ def mpgepmcusers_signup(request):
         
     return render(request, 'mpgepmcusers/mpgepmcusers_signup.html', {'form': form, 'title': 'Sign Up'})
 
-# --- Verification Views (Fix for the error) ---
+# --- Verification Views ---
 
 def mpgepmcusers_otp_verify(request):
     """OTP Verification View."""
@@ -103,38 +150,64 @@ def mpgepmcusers_otp_verify(request):
 
     user = get_object_or_404(mpgepmcusersUser, email=email)
     
+    # If user once verified never be access to otp verification pages
     if user.is_active:
-        # User is already verified
         if 'unverified_email' in request.session:
             del request.session['unverified_email']
+        messages.success(request, 'Your account is already verified. Please sign in.')
         return redirect('mpgepmcusers:signin')
 
-    if request.method == 'POST':
-        otp_code = request.POST.get('otp_code')
-        try:
-            otp_record = mpgepmcusersOTP.objects.get(user=user)
-            
-            if otp_code is None or not otp_code.strip():
-                 messages.error(request, "Please enter the OTP code.")
-            elif otp_record.otp_code == otp_code.strip() and not otp_record.is_expired():
-                # Verification success
-                user.is_active = True
-                user.save()
-                otp_record.delete()
-                if 'unverified_email' in request.session:
-                    del request.session['unverified_email']
-                messages.success(request, "Account successfully verified! Please sign in.")
-                return redirect('mpgepmcusers:signin')
-            elif otp_record.is_expired():
-                messages.error(request, "OTP has expired. Please request a new one.")
-            else:
-                messages.error(request, "Invalid OTP code.")
-        except mpgepmcusersOTP.DoesNotExist:
-            messages.error(request, "No active OTP found. Please request a resend.")
-        except Exception:
-            messages.error(request, "Verification failed. Please try again.")
+    is_otp_valid = False
+    otp_record = None
+    try:
+        otp_record = mpgepmcusersOTP.objects.get(user=user)
+        is_otp_valid = otp_record.is_valid_and_not_expired()
+    except mpgepmcusersOTP.DoesNotExist:
+        messages.error(request, "No active OTP found. Please request a resend.")
+        is_otp_valid = False # Ensure template knows OTP is unavailable
 
-    context = {'email': email, 'title': 'Verify Account'}
+    if request.method == 'POST' and otp_record:
+        otp_code = request.POST.get('otp_code')
+        
+        if not is_otp_valid:
+             messages.error(request, "The current OTP is either expired or marked invalid due to multiple failed attempts. Please request a new one.")
+             
+        elif otp_code is None or not otp_code.strip():
+             messages.error(request, "Please enter the OTP code.")
+             
+        elif otp_record.otp_code == otp_code.strip():
+            # Verification success
+            user.is_active = True
+            user.save()
+            otp_record.delete()
+            if 'unverified_email' in request.session:
+                del request.session['unverified_email']
+            messages.success(request, "Account successfully verified! Please sign in.")
+            return redirect('mpgepmcusers:signin')
+            
+        else:
+            # Verification failure
+            otp_record.fail_attempts += 1
+            if otp_record.fail_attempts >= 3:
+                # If user tried three time wrong otp, the active OTP can be marked invalid
+                otp_record.invalidated = True
+                messages.error(request, f"Invalid OTP code. This was your {otp_record.fail_attempts} attempt. The OTP has been invalidated.")
+            else:
+                messages.error(request, f"Invalid OTP code. You have {3 - otp_record.fail_attempts} attempts remaining.")
+            otp_record.save()
+            
+            # Re-check validity after saving the attempt
+            is_otp_valid = otp_record.is_valid_and_not_expired()
+            if not is_otp_valid and otp_record.invalidated: 
+                 # Message for invalidated OTP must state waiting for expiration
+                 messages.error(request, "The OTP is now invalid due to failed attempts. A new OTP can only be requested after the original expiration time has passed.")
+                 
+    context = {
+        'email': email, 
+        'title': 'Verify Account',
+        'expires_at_timestamp': otp_record.expires_at.timestamp() * 1000 if otp_record and otp_record.expires_at else None,
+        'is_otp_valid': is_otp_valid
+    }
     return render(request, 'mpgepmcusers/mpgepmcusers_otp_verify.html', context)
 
 @require_POST
@@ -147,19 +220,32 @@ def mpgepmcusers_resend_otp(request):
     try:
         user = mpgepmcusersUser.objects.get(email=email)
         
-        # Prevent spamming: Check if an OTP was recently generated (e.g., in the in the last 60 seconds)
+        # New OTP Cannot be resend before expiration time.
         try:
-            last_otp = mpgepmcusersOTP.objects.get(user=user)
-            # Assuming get_otp_resend_throttle() is a method on the User model
-            if (last_otp.created_at + user.get_otp_resend_throttle()) > timezone.now():
-                 return JsonResponse({'success': False, 'message': 'Wait a moment before resending.'}, status=429)
+            otp_record = mpgepmcusersOTP.objects.get(user=user)
+            
+            # If the current OTP is NOT expired, reject resend (regardless of invalidated status).
+            if otp_record.expires_at > timezone.now(): 
+                 return JsonResponse({
+                     'success': False, 
+                     'message': 'The previous OTP is still active. You must wait until it expires to resend.'
+                 }, status=429)
+                 
         except mpgepmcusersOTP.DoesNotExist:
-            pass # No existing OTP, so proceed.
+            pass # No existing OTP, proceed to generate.
         
+        # Generate new OTP (only reached if it was expired or didn't exist)
         new_otp = mpgepmcusers_generate_otp(user)
         
         if mpgepmcusers_send_otp_email(user, new_otp):
-            return JsonResponse({'success': True, 'message': 'New OTP sent to your email!'}, status=200)
+            new_otp_record = mpgepmcusersOTP.objects.get(user=user)
+            new_expiry_timestamp = new_otp_record.expires_at.timestamp() * 1000
+            
+            return JsonResponse({
+                'success': True, 
+                'message': 'New OTP sent to your email!',
+                'expires_at_timestamp': new_expiry_timestamp
+            }, status=200)
         else:
             return JsonResponse({'success': False, 'message': 'Failed to send new OTP.'}, status=500)
 

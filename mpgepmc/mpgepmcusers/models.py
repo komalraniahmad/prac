@@ -109,6 +109,14 @@ class mpgepmcusersUser(AbstractBaseUser, PermissionsMixin):
     def get_short_name(self):
         """Returns the short name for the user."""
         return self.first_name
+        
+    # FIX: Added a placeholder method to satisfy the resend throttle check in views.py
+    def get_otp_resend_throttle(self):
+        """Returns the throttle duration (e.g., 60 seconds) as a timedelta."""
+        # Using a very short duration here, as the new rule is to throttle until expiry.
+        # This method is now OBSOLETE based on the new logic, but kept for compatibility.
+        # The core resend logic is moved to check against the full expiry time in views.py.
+        return timedelta(seconds=1) 
 
 # OTP Verification Model
 class mpgepmcusersOTP(models.Model):
@@ -119,6 +127,10 @@ class mpgepmcusersOTP(models.Model):
     otp_code = models.CharField(max_length=6)
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
+    # NEW FIELD: Tracks failed verification attempts
+    fail_attempts = models.PositiveSmallIntegerField(default=0) 
+    # NEW FIELD: Marks the OTP as invalid due to too many attempts
+    invalidated = models.BooleanField(default=False) 
 
     class Meta:
         verbose_name = 'mpgepmc OTP Record'
@@ -128,18 +140,29 @@ class mpgepmcusersOTP(models.Model):
         """Checks if the OTP has expired."""
         return timezone.now() > self.expires_at
 
+    def is_valid_and_not_expired(self):
+        """Checks if the OTP is currently usable."""
+        return not self.is_expired() and not self.invalidated
+
     def save(self, *args, **kwargs):
         """Sets the expiry time before saving if not already set."""
         # Use OTP_EXPIRY_TIME from settings
-        if not self.id or not self.expires_at:
-            self.expires_at = timezone.now() + OTP_EXPIRY_TIME 
+        # FIX: The expiry time should be set *only* when the object is created
+        # or explicitly when the OTP is regenerated, not on every save.
+        if not self.id or (hasattr(self, '_regenerate') and self._regenerate): 
+            self.expires_at = timezone.now() + OTP_EXPIRY_TIME
+            if self.id: # Reset attempts/invalidated state on regeneration
+                self.fail_attempts = 0
+                self.invalidated = False
+            
         super().save(*args, **kwargs)
-
+        
     def __str__(self):
         return f"OTP for {self.user.email}"
 
 # --- NEW MODEL FOR DYNAMIC MOBILE VALIDATION RULES ---
 class MobileValidationRule(models.Model):
+    # ... (rest of MobileValidationRule remains the same)
     """
     Stores country-specific mobile number validation rules.
     """
