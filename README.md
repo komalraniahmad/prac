@@ -1,2 +1,2 @@
 # prac
-MOG epmc world is comming soon
+MPG epmc world is comming soon
