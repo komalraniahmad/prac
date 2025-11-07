@@ -10,9 +10,71 @@ from django.utils.encoding import force_bytes
 from django.contrib.sites.shortcuts import get_current_site
 from secrets import token_urlsafe # Use secrets for token generation
 
-from mpgepmcusers.models import mpgepmcusersOTP, mpgepmcusersPasswordResetToken # UPDATED IMPORT
+from mpgepmcusers.models import mpgepmcusersOTP, mpgepmcusersPasswordResetToken, mpgepmcusersUser # UPDATED IMPORT: Added mpgepmcusersUser
+
+# --- NEW UTILITY FOR USERNAME GENERATION ---
+
+def mpgepmcusers_generate_unique_username(first_name, middle_name, last_name):
+    """
+    Generates a unique username based on the user's full name, ensuring:
+    1. It's min. 8 characters long (padded with random digits if necessary).
+    2. It's unique (appends random digits until unique).
+    3. It's max. 64 characters long (max field length).
+    Format: FirstnameLastname or FirstnameMiddlenameLastname, stripped of spaces.
+    """
+    
+    # Base structure: Concatenate names (e.g., Ali + Haider + Ahmad -> AliHaiderAhmad)
+    name_parts = [first_name, middle_name, last_name]
+    base_username = ''.join(
+        [part.strip().replace(' ', '') for part in name_parts if part is not None and part.strip()]
+    )
+    
+    # Remove any non-alphanumeric characters, keeping it clean
+    base_username = ''.join(filter(str.isalnum, base_username))
+    
+    # Ensure all names are capitalized for consistency (e.g., AliAhmad)
+    base_username = base_username.title() 
+    
+    # Ensure it's not too long before we start padding
+    max_name_length = 60 # Reserve a few characters for digits
+    base_username = base_username[:max_name_length] 
+    
+    # Try the base username first
+    potential_username = base_username
+    counter = 0
+    
+    # Loop until a unique username is found
+    while mpgepmcusersUser.objects.filter(username=potential_username).exists():
+        counter += 1
+        
+        # 1. Pad with a 3-digit random number for initial uniqueness attempt
+        # This also helps meet the min 8-character requirement if the name is short.
+        random_suffix = str(random.randint(100, 9999)) 
+        
+        # 2. Append the random suffix to the base name
+        temp_username = base_username + random_suffix
+        
+        # 3. If the username is still less than 8 characters, pad with more digits until it reaches 8
+        if len(temp_username) < 8:
+            padding = ''.join(random.choices('0123456789', k=8 - len(temp_username)))
+            temp_username += padding
+            
+        # 4. Final check for max length (64)
+        potential_username = temp_username[:64]
+        
+        # As a safeguard against infinite loops (highly unlikely with random digits)
+        if counter > 10:
+            # Fallback to a purely random 10-character string
+            potential_username = 'user' + token_urlsafe(6).replace('-', '').replace('_', '')
+            break
+
+    return potential_username
+
+# --- END NEW UTILITY ---
+
 
 def mpgepmcusers_generate_otp(user):
+# ... (mpgepmcusers_generate_otp remains the same)
     """
     Generates a 6-digit OTP and stores it in the database with expiry.
     Returns the generated OTP.
@@ -38,6 +100,7 @@ def mpgepmcusers_generate_otp(user):
     return otp_code
 
 def mpgepmcusers_send_otp_email(user, otp_code):
+# ... (mpgepmcusers_send_otp_email remains the same)
     """
     Sends the OTP email to the user using an HTML template.
     Uses EmailMultiAlternatives for a multi-part (text/html) message.
@@ -81,6 +144,7 @@ def mpgepmcusers_send_otp_email(user, otp_code):
 # --- NEW PASSWORD MANAGEMENT UTILS ---
 
 def mpgepmcusers_generate_reset_token(user):
+# ... (mpgepmcusers_generate_reset_token remains the same)
     """
     Generates a unique, URL-safe token and stores it in the database with expiry.
     Returns the generated token string.
@@ -106,6 +170,7 @@ def mpgepmcusers_generate_reset_token(user):
 
 
 def mpgepmcusers_send_reset_email(request, user, token):
+# ... (mpgepmcusers_send_reset_email remains the same)
     """
     Sends the password reset link email to the user.
     """

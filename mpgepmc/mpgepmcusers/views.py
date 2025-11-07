@@ -21,7 +21,8 @@ from mpgepmcusers.forms import (
 from mpgepmcusers.models import mpgepmcusersUser, mpgepmcusersOTP, OTHER, mpgepmcusersPasswordResetToken # UPDATED IMPORT
 from mpgepmcusers.utils import (
     mpgepmcusers_generate_otp, mpgepmcusers_send_otp_email, 
-    mpgepmcusers_generate_reset_token, mpgepmcusers_send_reset_email # UPDATED IMPORT
+    mpgepmcusers_generate_reset_token, mpgepmcusers_send_reset_email, 
+    mpgepmcusers_generate_unique_username # NEW IMPORT
 )
 from mpgepmcusers.validators import (
     mpgepmcusers_validate_birth_date, mpgepmcusers_validate_email,
@@ -33,11 +34,13 @@ from mpgepmcusers.decorators import mpgepmcusers_unauthenticated_user
 # --- Shared Views ---
 
 def mpgepmcusers_index(request):
+# ... (mpgepmcusers_index remains the same)
     """Landing page view."""
     return render(request, 'mpgepmcusers/mpgepmcusers_index.html')
 
 @login_required
 def mpgepmcusers_home(request):
+# ... (mpgepmcusers_home remains the same)
     """Home/Dashboard view for authenticated users."""
     return render(request, 'mpgepmcusers/mpgepmcusers_home.html')
 
@@ -45,6 +48,7 @@ def mpgepmcusers_home(request):
 
 @mpgepmcusers_unauthenticated_user
 def mpgepmcusers_signin(request):
+# ... (mpgepmcusers_signin remains the same)
     if request.method == 'POST':
         # Need to manually get email and password since we bypass form.is_valid() for custom logic
         email_input = request.POST.get('username') or request.POST.get('email')
@@ -112,6 +116,7 @@ def mpgepmcusers_signin(request):
 
 @login_required
 def mpgepmcusers_logout(request):
+# ... (mpgepmcusers_logout remains the same)
     logout(request)
     messages.success(request, 'You have been successfully logged out.')
     return redirect('mpgepmcusers:signin')
@@ -124,16 +129,27 @@ def mpgepmcusers_signup(request):
         form = mpgepmcusersSignupForm(request.POST)
         if form.is_valid():
             try:
+                # 1. Save the form (creates the user object without username)
                 user = form.save()
-                # 1. Generate OTP
+                
+                # 2. Generate and assign the unique username
+                username = mpgepmcusers_generate_unique_username(
+                    user.first_name, 
+                    user.middle_name, 
+                    user.last_name
+                )
+                user.username = username
+                user.save(update_fields=['username']) # Only save the username field
+                
+                # 3. Generate OTP
                 otp_code = mpgepmcusers_generate_otp(user)
                 
-                # 2. Send OTP (Simulated)
+                # 4. Send OTP (Simulated)
                 mpgepmcusers_send_otp_email(user, otp_code)
                 
-                # 3. Store email in session to verify
+                # 5. Store email in session to verify
                 request.session['unverified_email'] = user.email
-                messages.success(request, 'Registration successful. An OTP has been sent to your email for verification.')
+                messages.success(request, 'Registration successful. Your username is **' + username + '**. An OTP has been sent to your email for verification.') # NEW: Added username to success message
                 return redirect('mpgepmcusers:otp_verify')
             except IntegrityError:
                 # Handle database errors (though uniqueness should be caught in form.is_valid)
@@ -150,6 +166,7 @@ def mpgepmcusers_signup(request):
 # --- Verification Views ---
 
 def mpgepmcusers_otp_verify(request):
+# ... (mpgepmcusers_otp_verify remains the same)
     """OTP Verification View."""
     email = request.session.get('unverified_email')
     
@@ -221,6 +238,7 @@ def mpgepmcusers_otp_verify(request):
 
 @require_POST
 def mpgepmcusers_resend_otp(request):
+# ... (mpgepmcusers_resend_otp remains the same)
     """Resends a new OTP to the unverified user."""
     email = request.session.get('unverified_email')
     if not email:
@@ -273,6 +291,7 @@ def mpgepmcusers_resend_otp(request):
 
 @mpgepmcusers_unauthenticated_user
 def mpgepmcusers_forgot_password(request):
+# ... (mpgepmcusers_forgot_password remains the same)
     """
     Handles the request to send a password reset link to a user's email,
     implementing strict throttling and account status checks.
@@ -353,6 +372,7 @@ def mpgepmcusers_forgot_password(request):
 
 @mpgepmcusers_unauthenticated_user
 def mpgepmcusers_reset_password_confirm(request, uidb64, token):
+# ... (mpgepmcusers_reset_password_confirm remains the same)
     """
     Allows the user to set a new password after clicking the reset link.
     """
@@ -399,6 +419,7 @@ def mpgepmcusers_reset_password_confirm(request, uidb64, token):
 
 @login_required
 def mpgepmcusers_change_password(request):
+# ... (mpgepmcusers_change_password remains the same)
     """
     Allows an authenticated user to change their password, with a 2-hour throttle.
     """
@@ -448,6 +469,7 @@ def mpgepmcusers_change_password(request):
 
 @require_POST
 def mpgepmcusers_ajax_validate(request):
+# ... (mpgepmcusers_ajax_validate remains the same)
     """
     Handles live, asynchronous validation checks for uniqueness, format, and other rules.
     Expects a JSON payload in request.body.

@@ -8,9 +8,10 @@ class mpgepmcusersUserAdmin(UserAdmin):
     """
     Custom admin interface for the mpgepmcusersUser model.
     """
-    # UPDATED list_display to show all relevant signup fields
+    # UPDATED list_display to show all relevant signup fields, including username
     list_display = (
         'email', 
+        'username', # NEW: Show username
         'first_name', 
         'middle_name', 
         'last_name', 
@@ -23,13 +24,13 @@ class mpgepmcusersUserAdmin(UserAdmin):
         'is_superuser',
         'last_password_change' # NEW: Show last password change time
     )
-    search_fields = ('email', 'first_name', 'last_name')
+    search_fields = ('email', 'username', 'first_name', 'last_name') # UPDATED: Added username
     ordering = ('email',)
     filter_horizontal = ()
 
     # Custom fieldsets for the admin change form
     fieldsets = (
-        (None, {'fields': ('email', 'password')}),
+        (None, {'fields': ('email', 'username', 'password')}), # UPDATED: Added username
         ('Personal info', {'fields': ('first_name', 'middle_name', 'last_name', 'gender', 'custom_gender', 'date_of_birth', 'mobile_number')}),
         ('Permissions', {'fields': ('is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions')}),
         ('Important dates', {'fields': ('last_login', 'date_joined', 'last_password_change')}), # NEW: last_password_change
@@ -40,6 +41,7 @@ class mpgepmcusersUserAdmin(UserAdmin):
 # Admin for OTP
 @admin.register(mpgepmcusersOTP)
 class mpgepmcusersOTPAdmin(admin.ModelAdmin):
+# ... (mpgepmcusersOTPAdmin remains the same)
     """
     Admin interface for the OTP record model.
     """
@@ -50,6 +52,7 @@ class mpgepmcusersOTPAdmin(admin.ModelAdmin):
 # NEW ADMIN: Password Reset Token
 @admin.register(mpgepmcusersPasswordResetToken)
 class mpgepmcusersPasswordResetTokenAdmin(admin.ModelAdmin):
+# ... (mpgepmcusersPasswordResetTokenAdmin remains the same)
     """
     Admin interface for the Password Reset Token model.
     """
@@ -60,6 +63,7 @@ class mpgepmcusersPasswordResetTokenAdmin(admin.ModelAdmin):
 # --- NEW ADMIN FOR DYNAMIC MOBILE VALIDATION RULES ---
 @admin.register(MobileValidationRule)
 class MobileValidationRuleAdmin(admin.ModelAdmin):
+# ... (MobileValidationRuleAdmin remains the same)
     """
     Admin interface for the MobileValidationRule model.
     """
