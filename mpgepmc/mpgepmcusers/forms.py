@@ -195,3 +195,83 @@ class mpgepmcusersSignInForm(AuthenticationForm):
     Standard Django Authentication form.
     """
     pass
+
+# --- NEW PASSWORD MANAGEMENT FORMS ---
+
+class mpgepmcusersForgotPasswordForm(forms.Form):
+    """
+    Form to request a password reset link via email.
+    """
+    email = forms.EmailField(
+        label='Email Address',
+        max_length=254,
+    )
+    
+    def clean_email(self):
+        email = self.cleaned_data.get('email')
+        if not mpgepmcusersUser.objects.filter(email__iexact=email).exists():
+            # Hide the fact that an email does not exist to prevent user enumeration
+            # We still return the email so the save/send process can skip without error
+            pass 
+        return email
+
+class mpgepmcusersSetPasswordForm(forms.Form):
+    """
+    Form for setting a new password (used after a password reset link is clicked).
+    """
+    new_password = forms.CharField(
+        widget=forms.PasswordInput,
+        label='New Password',
+        min_length=8,
+        max_length=52,
+        validators=[mpgepmcusers_validate_password_complexity],
+    )
+    new_password_confirm = forms.CharField(
+        widget=forms.PasswordInput,
+        label='Confirm New Password',
+        min_length=8,
+        max_length=52,
+    )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        new_password = cleaned_data.get("new_password")
+        new_password_confirm = cleaned_data.get("new_password_confirm")
+
+        if new_password and new_password_confirm and new_password != new_password_confirm:
+            self.add_error('new_password_confirm', "Passwords do not match.")
+            
+        return cleaned_data
+
+
+class mpgepmcusersChangePasswordForm(mpgepmcusersSetPasswordForm):
+    """
+    Form for authenticated users to change their password.
+    Extends mpgepmcusersSetPasswordForm but adds the old password field.
+    """
+    old_password = forms.CharField(
+        widget=forms.PasswordInput,
+        label='Current Password',
+    )
+    
+    def __init__(self, user, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.user = user
+
+    def clean_old_password(self):
+        old_password = self.cleaned_data.get('old_password')
+        # Check if the old password matches the current one
+        if not self.user.check_password(old_password):
+            raise forms.ValidationError("Your current password was entered incorrectly.")
+        return old_password
+
+    def clean(self):
+        cleaned_data = super().clean()
+        old_password = cleaned_data.get("old_password")
+        new_password = cleaned_data.get("new_password")
+
+        if old_password and new_password and self.user.check_password(new_password):
+            # Prevent changing to the same password
+            self.add_error('new_password', "The new password cannot be the same as the old password.")
+
+        return cleaned_data

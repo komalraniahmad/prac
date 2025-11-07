@@ -2,7 +2,6 @@ from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin, BaseUserManager
 from django.utils import timezone
 from datetime import timedelta
-# Assuming this import is correct based on the snippet context
 from mpgepmc.settings import OTP_EXPIRY_TIME 
 
 # --- GENDER CONSTANTS & CHOICES ---
@@ -89,6 +88,9 @@ class mpgepmcusersUser(AbstractBaseUser, PermissionsMixin):
     is_active = models.BooleanField(default=False) # Must be False until OTP is verified
     is_staff = models.BooleanField(default=False)
     date_joined = models.DateTimeField(default=timezone.now)
+    
+    # NEW FIELD: Last time the user changed their password (for throttling)
+    last_password_change = models.DateTimeField(default=timezone.now)
 
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['first_name', 'last_name', 'gender', 'date_of_birth', 'mobile_number']
@@ -159,6 +161,49 @@ class mpgepmcusersOTP(models.Model):
         
     def __str__(self):
         return f"OTP for {self.user.email}"
+        
+# NEW MODEL: Password Reset Token
+class mpgepmcusersPasswordResetToken(models.Model):
+    """
+    Model to store a one-time token for unauthenticated password resets.
+    Expiry is set to 2 hours (120 minutes).
+    """
+    
+    # Expiry time for the reset link (2 hours)
+    RESET_TOKEN_EXPIRY = timedelta(hours=2) 
+    
+    user = models.OneToOneField(
+        mpgepmcusersUser, 
+        on_delete=models.CASCADE, 
+        related_name='reset_token'
+    )
+    token = models.CharField(max_length=100, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    # To prevent replay attacks after a successful reset
+    is_used = models.BooleanField(default=False)
+
+    class Meta:
+        verbose_name = 'Password Reset Token'
+        verbose_name_plural = 'Password Reset Tokens'
+
+    def is_expired(self):
+        """Checks if the token has expired."""
+        return timezone.now() > self.expires_at
+
+    def is_valid(self):
+        """Checks if the token is currently usable."""
+        return not self.is_expired() and not self.is_used
+
+    def save(self, *args, **kwargs):
+        """Sets the expiry time before saving if not already set."""
+        if not self.id:
+            self.expires_at = timezone.now() + self.RESET_TOKEN_EXPIRY
+        super().save(*args, **kwargs)
+        
+    def __str__(self):
+        return f"Reset Token for {self.user.email}"
+
 
 # --- NEW MODEL FOR DYNAMIC MOBILE VALIDATION RULES ---
 class MobileValidationRule(models.Model):
@@ -193,3 +238,5 @@ class MobileValidationRule(models.Model):
 
     def __str__(self):
         return f"Rule for {self.country_code}"
+
+

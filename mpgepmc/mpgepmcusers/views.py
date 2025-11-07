@@ -9,11 +9,20 @@ from django.db import IntegrityError
 from django.utils import timezone 
 from django.core.exceptions import ValidationError 
 from django.contrib.auth.hashers import check_password
-from datetime import datetime
+from datetime import datetime, timedelta # UPDATED IMPORT
+from django.utils.encoding import force_str
+from django.utils.http import urlsafe_base64_decode
 
-from mpgepmcusers.forms import mpgepmcusersSignupForm, mpgepmcusersSignInForm
-from mpgepmcusers.models import mpgepmcusersUser, mpgepmcusersOTP, OTHER
-from mpgepmcusers.utils import mpgepmcusers_generate_otp, mpgepmcusers_send_otp_email
+from mpgepmcusers.forms import (
+    mpgepmcusersSignupForm, mpgepmcusersSignInForm, 
+    mpgepmcusersForgotPasswordForm, mpgepmcusersSetPasswordForm, 
+    mpgepmcusersChangePasswordForm # UPDATED IMPORT
+)
+from mpgepmcusers.models import mpgepmcusersUser, mpgepmcusersOTP, OTHER, mpgepmcusersPasswordResetToken # UPDATED IMPORT
+from mpgepmcusers.utils import (
+    mpgepmcusers_generate_otp, mpgepmcusers_send_otp_email, 
+    mpgepmcusers_generate_reset_token, mpgepmcusers_send_reset_email # UPDATED IMPORT
+)
 from mpgepmcusers.validators import (
     mpgepmcusers_validate_birth_date, mpgepmcusers_validate_email,
     mpgepmcusers_validate_mobile_number, mpgepmcusers_validate_password_complexity,
@@ -252,6 +261,189 @@ def mpgepmcusers_resend_otp(request):
     except mpgepmcusersUser.DoesNotExist:
         return JsonResponse({'success': False, 'message': 'User not found.'}, status=404)
 
+# --- NEW PASSWORD MANAGEMENT VIEWS (Unauthenticated) ---
+
+# views.py
+
+# ... (imports remain the same)
+
+# views.py
+
+# ... (imports remain the same)
+
+@mpgepmcusers_unauthenticated_user
+def mpgepmcusers_forgot_password(request):
+    """
+    Handles the request to send a password reset link to a user's email,
+    implementing strict throttling and account status checks.
+    """
+    if request.method == 'POST':
+        form = mpgepmcusersForgotPasswordForm(request.POST)
+        if form.is_valid():
+            email = form.cleaned_data['email']
+            user = None
+            try:
+                user = mpgepmcusersUser.objects.get(email__iexact=email)
+            except mpgepmcusersUser.DoesNotExist:
+                # --- REQUIREMENT 1: Email does NOT exist ---
+                messages.error(
+                    request, 
+                    "This email is not associated with any account."
+                )
+                return redirect('mpgepmcusers:forgot_password') # Redirect with error
+            
+            # --- REQUIREMENT 2: Email exists but is NOT verified (is_active=False) ---
+            if not user.is_active:
+                messages.warning(request, "This account is not verified. Redirecting to verification.")
+                # Set session to start/resume OTP process
+                request.session['unverified_email'] = user.email
+                # Redirect to OTP verification page
+                return redirect('mpgepmcusers:otp_verify')
+                    
+            # --- REQUIREMENT 4: Check for Unexpired Reset Token (Strict Throttling) ---
+            try:
+                # Check for an existing reset token record
+                reset_token_record = mpgepmcusersPasswordResetToken.objects.get(user=user)
+                
+                # If the token is NOT expired, reject the new request.
+                if timezone.now() < reset_token_record.expires_at:
+                    remaining_time = reset_token_record.expires_at - timezone.now()
+                    hours = int(remaining_time.total_seconds() // 3600)
+                    minutes = int((remaining_time.total_seconds() % 3600) // 60)
+                    seconds = int(remaining_time.total_seconds() % 60)
+
+                    # Show remaining time wait message
+                    messages.warning(
+                        request,
+                        f'A password reset link has already been sent. Please wait {hours}h {minutes}m {seconds}s for the previous link to expire before requesting a new one.'
+                    )
+                    return redirect('mpgepmcusers:forgot_password')
+                    
+                # If the token *is* expired, the next steps will handle its deletion/replacement.
+            except mpgepmcusersPasswordResetToken.DoesNotExist:
+                # No existing token, proceed to generation.
+                pass
+            # --- END THROTTLING LOGIC ---
+            
+            # --- REQUIREMENT 3: Email exists, verified, and no active/unexpired token exists ---
+            
+            # 1. Generate the unique token (This will delete the old expired token if it existed)
+            token = mpgepmcusers_generate_reset_token(user)
+            
+            # 2. Send the reset email
+            if mpgepmcusers_send_reset_email(request, user, token):
+                messages.success(
+                    request, 
+                    'A password reset link has been sent to your email address. Please check your inbox (and spam folder).'
+                )
+            else:
+                messages.error(request, 'Failed to send the password reset email. Please try again later.')
+            
+            return redirect('mpgepmcusers:forgot_password')
+    else:
+        form = mpgepmcusersForgotPasswordForm()
+        
+    return render(request, 'mpgepmcusers/mpgepmcusers_forgot_password.html', {'form': form, 'title': 'Forgot Password'})
+
+# ... (rest of the file remains the same)
+
+
+# ... (rest of the file remains the same)
+
+
+@mpgepmcusers_unauthenticated_user
+def mpgepmcusers_reset_password_confirm(request, uidb64, token):
+    """
+    Allows the user to set a new password after clicking the reset link.
+    """
+    try:
+        # Decode the user ID
+        uid = force_str(urlsafe_base64_decode(uidb64))
+        user = mpgepmcusersUser.objects.get(pk=uid)
+        reset_token_record = mpgepmcusersPasswordResetToken.objects.get(user=user, token=token)
+        
+    except (TypeError, ValueError, OverflowError, mpgepmcusersUser.DoesNotExist, mpgepmcusersPasswordResetToken.DoesNotExist):
+        messages.error(request, 'Invalid or expired password reset link.')
+        return redirect('mpgepmcusers:signin')
+        
+    if not reset_token_record.is_valid():
+        messages.error(request, 'The password reset link is invalid, expired, or has already been used.')
+        return redirect('mpgepmcusers:signin')
+
+    if request.method == 'POST':
+        form = mpgepmcusersSetPasswordForm(request.POST)
+        if form.is_valid():
+            new_password = form.cleaned_data['new_password']
+            
+            user.set_password(new_password)
+            user.last_password_change = timezone.now() # Update for throttling
+            user.save()
+            
+            reset_token_record.is_used = True
+            reset_token_record.save()
+            
+            messages.success(request, 'Your password has been successfully reset! You can now sign in.')
+            return redirect('mpgepmcusers:signin')
+    else:
+        form = mpgepmcusersSetPasswordForm()
+        
+    context = {
+        'form': form, 
+        'title': 'Set New Password', 
+        'uidb64': uidb64, 
+        'token': token
+    }
+    return render(request, 'mpgepmcusers/mpgepmcusers_reset_password_confirm.html', context)
+    
+# --- NEW PASSWORD MANAGEMENT VIEW (Authenticated) ---
+
+@login_required
+def mpgepmcusers_change_password(request):
+    """
+    Allows an authenticated user to change their password, with a 2-hour throttle.
+    """
+    user = request.user
+    
+    # Throttle Check: User can only change password once every 2 hours
+    throttle_duration = timedelta(hours=2)
+    time_since_last_change = timezone.now() - user.last_password_change
+    
+    if time_since_last_change < throttle_duration:
+        remaining_time = throttle_duration - time_since_last_change
+        # Format remaining time for a user-friendly message
+        hours = int(remaining_time.total_seconds() // 3600)
+        minutes = int((remaining_time.total_seconds() % 3600) // 60)
+        seconds = int(remaining_time.total_seconds() % 60)
+        
+        messages.warning(
+            request, 
+            f'You can only change your password once every 2 hours. Please wait {hours}h {minutes}m {seconds}s before trying again.'
+        )
+        # Redirect to home, preventing form submission
+        return redirect('mpgepmcusers:home')
+
+    if request.method == 'POST':
+        form = mpgepmcusersChangePasswordForm(user=user, data=request.POST)
+        if form.is_valid():
+            new_password = form.cleaned_data['new_password']
+            
+            user.set_password(new_password)
+            user.last_password_change = timezone.now() # Update for throttling
+            user.save()
+            
+            # Important: Re-login the user to update the session with the new password hash
+            login(request, user) 
+            
+            messages.success(request, 'Your password has been successfully changed.')
+            return redirect('mpgepmcusers:home')
+        else:
+             messages.error(request, 'Please correct the errors below.')
+    else:
+        form = mpgepmcusersChangePasswordForm(user=user)
+        
+    return render(request, 'mpgepmcusers/mpgepmcusers_change_password.html', {'form': form, 'title': 'Change Password'})
+
+
 # --- AJAX Validation View ---
 
 @require_POST
@@ -354,7 +546,7 @@ def mpgepmcusers_ajax_validate(request):
                 error_message = 'This mobile number is already registered.'
 
         # --- Password Validation ---
-        elif field_name == 'password':
+        elif field_name in ['password', 'new_password']:
             mpgepmcusers_validate_password_complexity(value)
             
     except Exception as e:

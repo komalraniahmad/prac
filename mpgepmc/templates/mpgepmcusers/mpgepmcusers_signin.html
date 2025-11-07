@@ -52,7 +52,9 @@
                 <label for="{{ form.password.id_for_label }}">Password</label>
                 {{ form.password }}
             </div>
-            
+            <div class="links">
+                Click here? <a href="{% url 'mpgepmcusers:forgot_password' %}">Forgot Password</a>.
+            </div>
             {% if form.errors and not form.non_field_errors %}
                 <ul class="errorlist alert-error">
                     <li>Please check your credentials.</li>
